@@ -1,0 +1,40 @@
+{
+  "name": "myfinance",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@10.32.1",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "format": "prettier --write \"**/*.{ts,tsx,md,json}\"",
+    "db:generate": "pnpm --filter @myfinance/api prisma:generate",
+    "db:push": "pnpm --filter @myfinance/api prisma:push",
+    "db:migrate": "pnpm --filter @myfinance/api prisma:migrate",
+    "db:deploy": "pnpm --filter @myfinance/api prisma:deploy",
+    "db:seed": "pnpm --filter @myfinance/api prisma:seed",
+    "db:studio": "pnpm --filter @myfinance/api prisma:studio",
+    "generate:api": "pnpm --filter @myfinance/web generate:api"
+  },
+  "devDependencies": {
+    "prettier": "^3.4.2",
+    "turbo": "^2.10.9",
+    "typescript": "^5.7.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "prisma",
+      "argon2",
+      "esbuild",
+      "sharp",
+      "unrs-resolver"
+    ]
+  }
+}

@@ -1,0 +1,41 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# generated
+apps/api/src/generated/
+apps/api/generated/
+
+# turbo
+.turbo/
+
+# env
+.env
+.env.*
+!.env.example
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# editor / os
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# test coverage
+coverage/
+
+# agent tooling
+graphify-out/
+CLAUDE.md
+Agents.md

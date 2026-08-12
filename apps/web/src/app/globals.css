@@ -1,0 +1,127 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+/*
+ * Light only. The app deliberately has no dark palette: `next-themes` was never
+ * mounted, so the old `.dark` block was unreachable code pretending to be support.
+ *
+ * This line must stay even though nothing ever adds `.dark`. shadcn primitives
+ * ship `dark:` utilities; without this override Tailwind falls back to its
+ * built-in `prefers-color-scheme: dark` variant and those rules would fire on a
+ * dark-mode OS, half-theming a design that has no dark palette to land on.
+ * Redefining the variant against a class nobody sets is what disables them.
+ */
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --font-heading: var(--font-sans);
+    --font-sans: var(--font-sans);
+
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+
+    /* Money semantics. Never encode income/expense in colour alone — these
+     * always travel with an explicit +/− sign and a written label. */
+    --color-income: var(--income);
+    --color-expense: var(--expense);
+    --color-warning: var(--warning);
+
+    /* The deep-teal "inverted" surface and everything that sits on it. */
+    --color-inverted: var(--inverted);
+    --color-inverted-foreground: var(--inverted-foreground);
+    --color-inverted-muted: var(--inverted-muted);
+    --color-inverted-border: var(--inverted-border);
+
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+    /* Warm off-white canvas; cards are pure white. Separation comes from the
+     * surface step plus a hairline ring — never a shadow. */
+    --background: oklch(0.965 0.005 150);
+    --foreground: oklch(0.21 0.012 200);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.21 0.012 200);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.21 0.012 200);
+
+    /* Brand green. Filled surfaces only — never text on a light background.
+     * Foreground is deep ink rather than white: 7.6:1 instead of 2.3:1, which
+     * the daylight-legibility requirement in PRODUCT.md rules out. */
+    --primary: oklch(0.72 0.165 150);
+    --primary-foreground: oklch(0.21 0.012 200);
+
+    --secondary: oklch(0.955 0.004 150);
+    --secondary-foreground: oklch(0.21 0.012 200);
+    --muted: oklch(0.955 0.004 150);
+    --muted-foreground: oklch(0.545 0.008 150);
+    --accent: oklch(0.945 0.006 150);
+    --accent-foreground: oklch(0.21 0.012 200);
+    --destructive: oklch(0.55 0.19 27);
+
+    --border: oklch(0.915 0.004 150);
+    --input: oklch(0.915 0.004 150);
+    --ring: oklch(0.72 0.165 150);
+
+    --radius: 0.875rem;
+
+    /* Income is a darker green than --primary so it clears 4.5:1 as text.
+     * The two greens are never interchangeable: --primary fills, --income writes. */
+    --income: oklch(0.53 0.14 152);
+    --expense: oklch(0.55 0.19 27);
+    --warning: oklch(0.7 0.14 70);
+
+    --inverted: oklch(0.34 0.045 195);
+    --inverted-foreground: oklch(0.97 0.01 160);
+    --inverted-muted: oklch(0.75 0.03 185);
+    --inverted-border: oklch(1 0 0 / 12%);
+
+    /* Green/teal duotone plus supports. Categories prefer their own hex colour
+     * from the API and fall back to this ramp by index only when it is null. */
+    --chart-1: oklch(0.72 0.165 150);
+    --chart-2: oklch(0.34 0.045 195);
+    --chart-3: oklch(0.55 0.075 190);
+    --chart-4: oklch(0.86 0.06 155);
+    --chart-5: oklch(0.7 0.14 70);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    }
+  body {
+    @apply bg-background text-foreground;
+    }
+  html {
+    @apply font-sans;
+    }
+}

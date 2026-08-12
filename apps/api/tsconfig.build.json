@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.json",
+  // Only src is compiled into dist — prisma/seed.ts and prisma.config.ts are run
+  // by tsx / the Prisma CLI, and including them would nest dist/ an extra level.
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "**/*spec.ts"]
+}

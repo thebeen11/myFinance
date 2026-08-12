@@ -1,0 +1,280 @@
+// myFinance data model.
+//
+// Money is ALWAYS stored as integer minor units (`*Minor` columns) plus an ISO
+// 4217 `currency` code — never as a float or Decimal. Convert at the edges with
+// toMinor()/fromMinor() from @myfinance/shared.
+//
+// Connection URLs live in ../prisma.config.ts (Prisma 7 moved them out of here).
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum AccountType {
+  CASH
+  BANK
+  EWALLET
+  CREDIT_CARD
+  INVESTMENT
+}
+
+enum CategoryKind {
+  INCOME
+  EXPENSE
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+/// A person who can sign in. Every owned row below hangs off this; there is no
+/// row-level security in Postgres, so the API's `userId` filters are the only
+/// thing keeping one user's money out of another's queries.
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  passwordHash String
+  displayName  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  accounts         Account[]
+  categories       Category[]
+  merchants        Merchant[]
+  products         Product[]
+  transactions     Transaction[]
+  transactionItems TransactionItem[]
+  refreshTokens    RefreshToken[]
+
+  @@map("users")
+}
+
+/// One row per issued refresh token. Rotation revokes the old row and inserts a
+/// new one, so a token replayed after revocation is provable theft.
+model RefreshToken {
+  id String @id @default(uuid()) @db.Uuid
+
+  userId String @db.Uuid
+  /// SHA-256 of the token handed to the client. The raw value is never stored.
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Account {
+  id                  String      @id @default(uuid()) @db.Uuid
+  userId              String      @db.Uuid
+  name                String
+  type                AccountType
+  currency            String      @default("IDR") @db.Char(3)
+  /// Balance the account already held before the first tracked transaction.
+  openingBalanceMinor Int         @default(0)
+  archivedAt          DateTime?
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categories   Category[]
+  transactions Transaction[]
+
+  @@index([archivedAt])
+  @@index([userId])
+  @@map("accounts")
+}
+
+model Category {
+  id     String       @id @default(uuid()) @db.Uuid
+  userId String       @db.Uuid
+  /// The wallet this category is paid from. Nullable on purpose: categories that
+  /// predate the link stay valid and unassigned, and deleting an account detaches
+  /// its categories rather than erasing how spending was classified.
+  ///
+  /// An assigned category may only be used on a transaction posted to that same
+  /// account — the API enforces it; an unassigned one may be used anywhere.
+  accountId String?      @db.Uuid
+  name      String
+  kind      CategoryKind
+  /// Hex swatch used by the UI, e.g. "#22c55e".
+  color     String?      @db.VarChar(9)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  user     User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account  Account?          @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  /// Category classifies two things now: the master product, and the individual
+  /// line it was bought on. The line snapshots its own copy, so these two can
+  /// legitimately disagree.
+  products Product[]
+  items    TransactionItem[]
+  /// Income only. An income transaction has no lines to carry a category, so it
+  /// is classified on the header instead — see Transaction.categoryId.
+  transactions Transaction[]
+
+  /// Scoped by account, so "Groceries" can exist once per wallet. Postgres treats
+  /// NULLs as distinct, so this does NOT constrain *unassigned* categories —
+  /// CategoriesService.create pre-checks that case by hand.
+  @@unique([userId, accountId, name, kind])
+  @@index([accountId])
+  @@index([kind])
+  @@index([userId])
+  @@map("categories")
+}
+
+/// Where a purchase happened. Master data, so the same shop is typed once and
+/// then picked; a transaction may have none, and deleting one leaves its
+/// transactions in place with a null link.
+model Merchant {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  products     Product[]
+  transactions Transaction[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("merchants")
+}
+
+/// An item a merchant sells. Master data hanging off Merchant, so a shop's
+/// catalogue is typed once and then picked.
+///
+/// `lastPriceMinor` is the price last paid, entered by hand: nothing links a
+/// transaction to a product, so there is no history to derive it from.
+model Product {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @db.Uuid
+  merchantId     String   @db.Uuid
+  /// How this product is classified by default. Required by the API, but nullable
+  /// here so rows that predate categorised products migrate without inventing one,
+  /// and so deleting a category can null it rather than delete the product.
+  categoryId     String?  @db.Uuid
+  /// The merchant's own SKU. Unique within that merchant, not globally — two
+  /// shops may each call something "A-01".
+  code           String   @db.VarChar(40)
+  name           String
+  lastPriceMinor Int
+  /// Always IDR today and not settable through the API, but stored per row so
+  /// the amount carries its own scale and going multi-currency needs no migration.
+  currency       String   @default("IDR") @db.Char(3)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Cascades, unlike Transaction.merchant which detaches: a transaction still
+  /// happened without its merchant, but a product has no meaning without one.
+  merchant Merchant  @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  /// Lines that were bought as this product. They detach rather than cascade —
+  /// deleting master data must never erase what was actually paid for.
+  items    TransactionItem[]
+
+  @@unique([merchantId, code])
+  @@index([categoryId])
+  @@index([merchantId])
+  @@index([userId])
+  @@map("products")
+}
+
+model Transaction {
+  id          String          @id @default(uuid()) @db.Uuid
+  userId      String          @db.Uuid
+  accountId   String          @db.Uuid
+  merchantId  String?         @db.Uuid
+  type        TransactionType
+  /// Always positive; the sign is derived from `type`. **How it is maintained
+  /// depends on `type`, and the two rules are not interchangeable:**
+  ///
+  /// - `EXPENSE` — derived, never entered. The API recomputes it as the sum of
+  ///   `items.lineTotalMinor` on every item write, so a receipt with nothing
+  ///   itemised yet is zero.
+  /// - `INCOME` — entered directly and authoritative. Income has no receipt to
+  ///   itemise, so it is posted to the account as one amount and carries no
+  ///   lines at all; the API rejects line items on an income row precisely so
+  ///   that the expense recompute can never reach this column.
+  ///
+  /// TransactionsService is the only place that knows which rule applies.
+  amountMinor Int             @default(0)
+  currency    String          @default("IDR") @db.Char(3)
+  /// How an income transaction is classified, since it has no lines to carry a
+  /// category. Null on every expense, where category lives on `items` instead.
+  ///
+  /// SetNull on delete, for the same reason as Category.accountId: removing a
+  /// category reclassifies the money, it does not erase it.
+  categoryId  String?         @db.Uuid
+  occurredAt  DateTime
+  description String?
+  notes       String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account  Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  merchant Merchant? @relation(fields: [merchantId], references: [id], onDelete: SetNull)
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  items    TransactionItem[]
+
+  @@index([occurredAt])
+  @@index([accountId, occurredAt])
+  @@index([merchantId])
+  @@index([categoryId])
+  @@index([userId, occurredAt])
+  @@map("transactions")
+}
+
+/// One line on a receipt — a thing that was actually bought.
+///
+/// `name`, `unitPriceMinor` and `categoryId` are **snapshots** taken when the line
+/// was entered. The master product may be renamed, re-priced or re-categorised
+/// afterwards and this row must not move with it: what a receipt says is what was
+/// paid, and re-classifying a product is not permission to rewrite history.
+model TransactionItem {
+  id            String  @id @default(uuid()) @db.Uuid
+  /// Denormalised from the parent transaction, same precedent as Product.userId:
+  /// it lets the summary group these rows without joining, and keeps the tenant
+  /// filter one field away rather than one relation away.
+  userId        String  @db.Uuid
+  transactionId String  @db.Uuid
+  /// Null for a line typed by hand that is not in the catalogue yet.
+  productId     String? @db.Uuid
+  /// Required by the API; nullable here for the same reason as Product.categoryId.
+  categoryId    String? @db.Uuid
+
+  name           String
+  quantity       Int    @default(1)
+  unitPriceMinor Int
+  /// quantity * unitPriceMinor, computed by the API so the two can never disagree.
+  lineTotalMinor Int
+  /// Position on the receipt, so re-reading a transaction gives a stable order.
+  position       Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  product     Product?    @relation(fields: [productId], references: [id], onDelete: SetNull)
+  category    Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([transactionId])
+  @@index([userId])
+  @@index([productId])
+  @@index([categoryId])
+  @@map("transaction_items")
+}
