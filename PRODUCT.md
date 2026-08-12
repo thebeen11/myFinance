@@ -80,7 +80,37 @@ value is that by the time the user is entering a purchase, the app already knows
 - **Transactions** — `type`-signed (`INCOME` / `EXPENSE`) with an **always-positive** `amountMinor`;
   `occurredAt`, optional `description`, `notes`, optional category. Created, edited and deleted from the
   web app.
-- **Monthly summary** — income, expense, net.
+- **Additional charges** — tax, service charge, delivery: money on an expense that was paid but not
+  bought, named by hand and counted into the derived total alongside the line items. A percentage may be
+  typed to _seed_ the amount off the running total, but the amount is then edited to match the receipt —
+  the printed figure wins over the arithmetic. Charges carry no category, so they are absent from the
+  summary's per-category breakdown.
+- **Line discounts** — a promo or member price on one line, entered as a **percentage**. The rate is
+  what is stored; the API derives the money and the net line total from it, so changing the quantity
+  later re-applies the rate rather than leaving a figure that describes the price the line used to be.
+  This is deliberately the **opposite rule** from an additional charge — a charge is a figure printed on
+  the receipt and recorded verbatim, a discount is a rate applied to a gross the app already knows. The
+  catalogue keeps the undiscounted price: a one-off promotion belongs to that receipt, not to the product.
+- **Split bill** — a receipt one account paid for several. A line filed under a category linked to a
+  _different_ account is money this account covered for that one; the app already permits that mismatch,
+  and the split is simply it read back out. Nothing is entered: the rows are **per category**, because
+  that is what explains the figure, while the amount to be repaid is **per account**, because that is
+  how repayment happens. Additional charges belong to nobody in particular and are **prorated by each
+  participant's share of the lines**, distributed so the parts always add back to the receipt exactly.
+  **Both accounts are always named** — "owes you" would be meaningless when every account is yours, so
+  the app says _"Bank BCA reimburses Cash"_, naming the account that owed and the one that paid.
+- **Reimbursing a share** — records that an account paid its share back, and posts the money: an income
+  on the account that covered the receipt, an expense on the account that owed. Both are
+  **uncategorised** — the spending was already classified on the receipt, and repeating it would count
+  the same money twice — and both are refused every edit, since their amount is authoritative rather
+  than derived. Undoing a reimbursement removes the pair together. The amount is **snapshotted**:
+  editing the receipt afterwards changes what is owed now without rewriting what was actually repaid,
+  and the difference is shown rather than silently reconciled. Reimbursing across currencies is refused
+  outright; nothing holds an FX rate.
+- **Monthly summary** — income, expense, net. Reimbursement postings are **excluded**: both legs sit
+  inside the same person's accounts, so counting them would book a repayment as fresh income and fresh
+  spending for money that never entered or left. Balances do count them, which is the whole point of
+  posting them.
 - **Transaction list** — free-text search over description/notes, filter by account and type, paginated
   25 at a time.
 - **Dashboard** — month summary, per-account balances, five most recent transactions.

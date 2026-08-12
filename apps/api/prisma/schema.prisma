@@ -45,13 +45,15 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  accounts         Account[]
-  categories       Category[]
-  merchants        Merchant[]
-  products         Product[]
-  transactions     Transaction[]
-  transactionItems TransactionItem[]
-  refreshTokens    RefreshToken[]
+  accounts               Account[]
+  categories             Category[]
+  merchants              Merchant[]
+  products               Product[]
+  transactions           Transaction[]
+  transactionItems       TransactionItem[]
+  transactionCharges     TransactionCharge[]
+  transactionSettlements TransactionSettlement[]
+  refreshTokens          RefreshToken[]
 
   @@map("users")
 }
@@ -61,7 +63,7 @@ model User {
 model RefreshToken {
   id String @id @default(uuid()) @db.Uuid
 
-  userId String @db.Uuid
+  userId    String    @db.Uuid
   /// SHA-256 of the token handed to the client. The raw value is never stored.
   tokenHash String    @unique
   expiresAt DateTime
@@ -86,9 +88,11 @@ model Account {
   createdAt           DateTime    @default(now())
   updatedAt           DateTime    @updatedAt
 
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
   categories   Category[]
   transactions Transaction[]
+  /// Receipts paid by another wallet that this one owed a share of.
+  settlements  TransactionSettlement[] @relation("SettlementDebtor")
 
   @@index([archivedAt])
   @@index([userId])
@@ -96,14 +100,17 @@ model Account {
 }
 
 model Category {
-  id     String       @id @default(uuid()) @db.Uuid
-  userId String       @db.Uuid
+  id        String       @id @default(uuid()) @db.Uuid
+  userId    String       @db.Uuid
   /// The wallet this category is paid from. Nullable on purpose: categories that
   /// predate the link stay valid and unassigned, and deleting an account detaches
   /// its categories rather than erasing how spending was classified.
   ///
-  /// An assigned category may only be used on a transaction posted to that same
-  /// account — the API enforces it; an unassigned one may be used anywhere.
+  /// It is a label, **not a restriction**: the API deliberately does not refuse a
+  /// category whose account differs from the transaction's — see
+  /// TransactionItemsService.getCategoryOrThrow for why. That permitted divergence
+  /// is what a split bill reads: a line filed under another wallet's category, on a
+  /// receipt this wallet paid, is money fronted for that wallet.
   accountId String?      @db.Uuid
   name      String
   kind      CategoryKind
@@ -112,13 +119,13 @@ model Category {
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
-  user     User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  account  Account?          @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account      Account?          @relation(fields: [accountId], references: [id], onDelete: SetNull)
   /// Category classifies two things now: the master product, and the individual
   /// line it was bought on. The line snapshots its own copy, so these two can
   /// legitimately disagree.
-  products Product[]
-  items    TransactionItem[]
+  products     Product[]
+  items        TransactionItem[]
   /// Income only. An income transaction has no lines to carry a category, so it
   /// is classified on the header instead — see Transaction.categoryId.
   transactions Transaction[]
@@ -176,11 +183,11 @@ model Product {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user     User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   /// Cascades, unlike Transaction.merchant which detaches: a transaction still
   /// happened without its merchant, but a product has no meaning without one.
-  merchant Merchant  @relation(fields: [merchantId], references: [id], onDelete: Cascade)
-  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  merchant Merchant          @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  category Category?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   /// Lines that were bought as this product. They detach rather than cascade —
   /// deleting master data must never erase what was actually paid for.
   items    TransactionItem[]
@@ -193,47 +200,68 @@ model Product {
 }
 
 model Transaction {
-  id          String          @id @default(uuid()) @db.Uuid
-  userId      String          @db.Uuid
-  accountId   String          @db.Uuid
-  merchantId  String?         @db.Uuid
-  type        TransactionType
+  id           String          @id @default(uuid()) @db.Uuid
+  userId       String          @db.Uuid
+  accountId    String          @db.Uuid
+  merchantId   String?         @db.Uuid
+  type         TransactionType
   /// Always positive; the sign is derived from `type`. **How it is maintained
   /// depends on `type`, and the two rules are not interchangeable:**
   ///
-  /// - `EXPENSE` — derived, never entered. The API recomputes it as the sum of
-  ///   `items.lineTotalMinor` on every item write, so a receipt with nothing
-  ///   itemised yet is zero.
+  /// - `EXPENSE` — derived, never entered. The API recomputes it as
+  ///   `sum(items.lineTotalMinor) + sum(charges.amountMinor)` on every item or
+  ///   charge write, so a receipt with nothing on it yet is zero. Both
+  ///   collections feed one column: what was bought, plus what was paid on top
+  ///   of it, is what left the account.
   /// - `INCOME` — entered directly and authoritative. Income has no receipt to
   ///   itemise, so it is posted to the account as one amount and carries no
   ///   lines at all; the API rejects line items on an income row precisely so
   ///   that the expense recompute can never reach this column.
   ///
   /// TransactionsService is the only place that knows which rule applies.
-  amountMinor Int             @default(0)
-  currency    String          @default("IDR") @db.Char(3)
+  ///
+  /// A settlement posting (`settlementId` set) is the one exception to both: its
+  /// amount is written once by TransactionSplitsService and is authoritative
+  /// whichever `type` it carries. That is only safe because the write paths refuse
+  /// to touch such a row, so `recomputeTotal` can never reach it.
+  amountMinor  Int             @default(0)
+  currency     String          @default("IDR") @db.Char(3)
   /// How an income transaction is classified, since it has no lines to carry a
   /// category. Null on every expense, where category lives on `items` instead.
   ///
   /// SetNull on delete, for the same reason as Category.accountId: removing a
   /// category reclassifies the money, it does not erase it.
-  categoryId  String?         @db.Uuid
-  occurredAt  DateTime
-  description String?
-  notes       String?
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  categoryId   String?         @db.Uuid
+  /// Set when this row was *posted by* a settlement rather than entered by hand.
+  ///
+  /// It is the single gate every write path checks. One nullable link rather than a
+  /// flag plus a role column because the role is already recoverable: the inbound
+  /// leg is the INCOME on the fronting account, the outbound leg the EXPENSE on the
+  /// account that owed.
+  settlementId String?         @db.Uuid
+  occurredAt   DateTime
+  description  String?
+  notes        String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
 
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  account  Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  merchant Merchant? @relation(fields: [merchantId], references: [id], onDelete: SetNull)
-  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  items    TransactionItem[]
+  user        User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account     Account                 @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  merchant    Merchant?               @relation(fields: [merchantId], references: [id], onDelete: SetNull)
+  category    Category?               @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  items       TransactionItem[]
+  charges     TransactionCharge[]
+  /// The settlement that posted this row, when it is a leg rather than a receipt.
+  /// Cascades, so unsettling is a single delete that takes both legs with it.
+  settlement  TransactionSettlement?  @relation("SettlementPostings", fields: [settlementId], references: [id], onDelete: Cascade)
+  /// Settlements taken against this receipt — the other side of the same model.
+  settlements TransactionSettlement[] @relation("SettledReceipt")
 
   @@index([occurredAt])
   @@index([accountId, occurredAt])
   @@index([merchantId])
   @@index([categoryId])
+  @@index([settlementId])
   @@index([userId, occurredAt])
   @@map("transactions")
 }
@@ -256,13 +284,26 @@ model TransactionItem {
   /// Required by the API; nullable here for the same reason as Product.categoryId.
   categoryId    String? @db.Uuid
 
-  name           String
-  quantity       Int    @default(1)
-  unitPriceMinor Int
-  /// quantity * unitPriceMinor, computed by the API so the two can never disagree.
-  lineTotalMinor Int
+  name                String
+  quantity            Int    @default(1)
+  unitPriceMinor      Int
+  /// Basis points off this line — 10% is 1000. An integer for the same reason
+  /// money is: a stored float drifts. Zero is "no discount".
+  ///
+  /// **The rate is what is stored and the money is derived from it**, which is the
+  /// opposite of TransactionCharge.percentBasisPoints — there the amount is typed
+  /// to match the printed receipt and the percentage only records how it was
+  /// reached. A line's gross is already known here, so deriving keeps quantity,
+  /// price and discount from ever disagreeing.
+  discountBasisPoints Int    @default(0)
+  /// quantity * unitPriceMinor * discountBasisPoints / 10000, computed by the API
+  /// alongside lineTotalMinor so the rate and the money can never disagree.
+  discountMinor       Int    @default(0)
+  /// quantity * unitPriceMinor - discountMinor, computed by the API so the parts
+  /// and the whole can never disagree.
+  lineTotalMinor      Int
   /// Position on the receipt, so re-reading a transaction gives a stable order.
-  position       Int
+  position            Int
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -277,4 +318,90 @@ model TransactionItem {
   @@index([productId])
   @@index([categoryId])
   @@map("transaction_items")
+}
+
+/// Money that was paid but not bought — tax, service charge, delivery, packaging.
+///
+/// Kept apart from TransactionItem rather than filed as another line, because a
+/// service charge is not a thing the shop sells: putting it in `items` would
+/// list it under "what was bought" and hand it a category it has no business
+/// carrying. It still reaches `Transaction.amountMinor`, since it did leave the
+/// account.
+///
+/// `percentBasisPoints` is the percentage that *produced* `amountMinor`, kept so
+/// the row can say "11%" and so the field can be re-seeded. It is a seed, not a
+/// rule: the amount is authoritative and is edited to match the receipt, so a row
+/// reading 11% whose amount is not exactly 11% of anything is correct, not
+/// corrupt. Nothing recomputes it when the lines change.
+model TransactionCharge {
+  id            String @id @default(uuid()) @db.Uuid
+  /// Denormalised from the parent transaction, same precedent as TransactionItem.userId.
+  userId        String @db.Uuid
+  transactionId String @db.Uuid
+
+  name               String
+  /// Basis points — 11% is 1100. An integer for the same reason money is: a
+  /// stored float drifts. Null when the amount was typed straight in.
+  percentBasisPoints Int?
+  amountMinor        Int
+  /// Order on the receipt, which is also the order the percentage seed cascades in.
+  position           Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([transactionId])
+  @@index([userId])
+  @@map("transaction_charges")
+}
+
+/// A share of a fronted receipt that has been paid back.
+///
+/// A receipt paid from one wallet may carry lines filed under categories linked to
+/// another — see Category.accountId. Those lines are money this wallet fronted for
+/// that one, and the split is derived from them on every read; nothing is stored
+/// until it is settled. This row is the record that it *was*, and it owns the two
+/// transactions that moved the money.
+///
+/// The grain is one row per (receipt, owing account) rather than per category,
+/// because that is how repayment actually happens: the categories explain what the
+/// figure is made of, the wallet is who owes it.
+model TransactionSettlement {
+  id            String @id @default(uuid()) @db.Uuid
+  /// Denormalised from the parent transaction, same precedent as TransactionCharge.userId.
+  userId        String @db.Uuid
+  /// The receipt that was fronted.
+  transactionId String @db.Uuid
+  /// The wallet that owed a share of it.
+  owedAccountId String @db.Uuid
+
+  /// What was owed at the moment it was settled, in the receipt's currency.
+  ///
+  /// Deliberately **not** recomputed. The money has already moved, so editing the
+  /// receipt afterwards changes what is owed *now* without rewriting what was
+  /// actually paid back. The split response reports both figures and flags the
+  /// drift rather than silently picking one.
+  settledMinor Int
+  settledAt    DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transaction Transaction   @relation("SettledReceipt", fields: [transactionId], references: [id], onDelete: Cascade)
+  owedAccount Account       @relation("SettlementDebtor", fields: [owedAccountId], references: [id], onDelete: Cascade)
+  /// The INCOME on the fronting account and the EXPENSE on the owing one. They
+  /// cascade from here, so unsettling is a single delete.
+  postings    Transaction[] @relation("SettlementPostings")
+
+  /// A wallet can only owe one share of any one receipt, so settling twice is a
+  /// conflict rather than a second debt. PrismaExceptionFilter turns it into a 409.
+  @@unique([transactionId, owedAccountId])
+  @@index([owedAccountId])
+  @@index([transactionId])
+  @@index([userId])
+  @@map("transaction_settlements")
 }

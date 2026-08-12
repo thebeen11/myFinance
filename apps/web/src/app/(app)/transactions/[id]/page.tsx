@@ -10,9 +10,11 @@ import { toast } from 'sonner';
 import { transactionItemsRemove } from '@/api';
 import type { TransactionItemResponse } from '@/api';
 import { SaveToCatalogueDialog } from '@/components/transactions/save-to-catalogue-dialog';
+import { TransactionChargesCard } from '@/components/transactions/transaction-charges-card';
 import { TransactionDialog } from '@/components/transactions/transaction-dialog';
 import { TransactionItemCategorySelect } from '@/components/transactions/transaction-item-category-select';
 import { TransactionItemDialog } from '@/components/transactions/transaction-item-dialog';
+import { TransactionSplitCard } from '@/components/transactions/transaction-split-card';
 import { PageHeader } from '@/components/shell/page-header';
 import {
   AlertDialog,
@@ -25,6 +27,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -43,6 +46,14 @@ import {
 } from '@/hooks/use-finance-queries';
 import { money, shortDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
+
+/** Names both collections the expense total is derived from, skipping either when empty. */
+const expenseTotalLabel = (lineCount: number, chargeCount: number): string => {
+  const lines = `${lineCount} line${lineCount === 1 ? '' : 's'}`;
+  const charges = `${chargeCount} charge${chargeCount === 1 ? '' : 's'}`;
+
+  return chargeCount === 0 ? `Total from ${lines}` : `Total from ${lines} + ${charges}`;
+};
 
 export default function TransactionDetailPage() {
   // Every page here is a client component, so the route param comes from
@@ -88,6 +99,13 @@ export default function TransactionDetailPage() {
   // hidden rather than disabled — offering a control the server always rejects
   // reads as a broken page, not a restricted one.
   const isIncome = receipt?.type === 'INCOME';
+  /**
+   * A row posted by a reimbursement. Its amount was written once and is
+   * authoritative, and the API refuses every write to it — so the editing
+   * affordances are hidden rather than offered and then rejected. It is undone from
+   * the receipt it reimbursed, not from here.
+   */
+  const isSettlement = receipt?.isSettlement ?? false;
 
   if (transaction.isError) {
     return (
@@ -130,7 +148,7 @@ export default function TransactionDetailPage() {
         }
         title={receipt?.description ?? receipt?.merchant?.name ?? 'Transaction'}
         actions={
-          receipt ? (
+          receipt && !isSettlement ? (
             <Button variant="secondary" onClick={() => setHeaderOpen(true)}>
               <Pencil data-icon="inline-start" />
               Edit details
@@ -138,6 +156,18 @@ export default function TransactionDetailPage() {
           ) : null
         }
       />
+
+      {isSettlement ? (
+        <Card tone="muted">
+          <div className="px-(--card-spacing) text-sm">
+            <Badge variant="secondary">Reimbursement</Badge>
+            <p className="text-muted-foreground mt-2">
+              This row was posted by a reimbursement, so it cannot be edited here. Undo it on the
+              receipt it came from and this row goes with its opposite side.
+            </p>
+          </div>
+        </Card>
+      ) : null}
 
       <Card>
         <div className="grid gap-4 px-(--card-spacing) sm:grid-cols-2 lg:grid-cols-4">
@@ -181,9 +211,7 @@ export default function TransactionDetailPage() {
               )}
               <div className="flex flex-col gap-0.5">
                 <span className="text-muted-foreground text-xs font-medium">
-                  {isIncome
-                    ? 'Amount'
-                    : `Total from ${items.length} line${items.length === 1 ? '' : 's'}`}
+                  {isIncome ? 'Amount' : expenseTotalLabel(items.length, receipt.charges.length)}
                 </span>
                 <span
                   className={cn(
@@ -207,7 +235,7 @@ export default function TransactionDetailPage() {
         </div>
       </Card>
 
-      {isIncome ? null : (
+      {isIncome || isSettlement ? null : (
         <>
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-lg font-semibold tracking-tight">What was bought</h2>
@@ -231,6 +259,7 @@ export default function TransactionDetailPage() {
                   <TableHead>Category</TableHead>
                   <TableHead className="text-right">Qty</TableHead>
                   <TableHead className="text-right">Unit price</TableHead>
+                  <TableHead className="text-right">Discount</TableHead>
                   <TableHead className="text-right">Line total</TableHead>
                   <TableHead className="w-32 pr-5" />
                 </TableRow>
@@ -239,14 +268,14 @@ export default function TransactionDetailPage() {
                 {transaction.isPending ? (
                   Array.from({ length: 3 }, (_, index) => (
                     <TableRow key={index}>
-                      <TableCell colSpan={6} className="px-5">
+                      <TableCell colSpan={7} className="px-5">
                         <Skeleton className="h-6 w-full" />
                       </TableCell>
                     </TableRow>
                   ))
                 ) : items.length === 0 ? (
                   <TableRow className="hover:bg-transparent">
-                    <TableCell colSpan={6} className="py-14 text-center">
+                    <TableCell colSpan={7} className="py-14 text-center">
                       <p className="text-sm font-medium">Nothing itemised yet</p>
                       <p className="text-muted-foreground mt-1 text-sm">
                         Add what was bought — the total adds itself up from the lines.
@@ -280,6 +309,18 @@ export default function TransactionDetailPage() {
                       </TableCell>
                       <TableCell className="text-muted-foreground text-right tabular-nums">
                         {money(item.unitPriceMinor, receipt?.currency ?? 'IDR')}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-right tabular-nums">
+                        {item.discountMinor > 0 ? (
+                          <span className="flex flex-col">
+                            {/* Explicit sign, not a colour: the design system never
+                                signals direction by colour alone. */}
+                            −{money(item.discountMinor, receipt?.currency ?? 'IDR')}
+                            <span className="text-xs">{item.discountBasisPoints / 100}%</span>
+                          </span>
+                        ) : (
+                          '—'
+                        )}
                       </TableCell>
                       <TableCell className="text-right font-medium tabular-nums">
                         {money(item.lineTotalMinor, receipt?.currency ?? 'IDR')}
@@ -329,6 +370,19 @@ export default function TransactionDetailPage() {
               </TableBody>
             </Table>
           </Card>
+
+          <h2 className="text-lg font-semibold tracking-tight">Additional charges</h2>
+
+          {receipt ? <TransactionChargesCard transaction={receipt} /> : null}
+
+          {/* Only when a line is filed under a category belonging to another wallet.
+              An ordinary receipt has nothing to divide and shows no section at all. */}
+          {receipt?.split ? (
+            <>
+              <h2 className="text-lg font-semibold tracking-tight">Split</h2>
+              <TransactionSplitCard transaction={receipt} split={receipt.split} />
+            </>
+          ) : null}
         </>
       )}
 

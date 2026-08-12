@@ -320,7 +320,15 @@ export type TransactionItemResponse = {
   quantity: number;
   unitPriceMinor: number;
   /**
-   * quantity × unitPriceMinor.
+   * Basis points off this line (10% is 1000). Zero when nothing was discounted.
+   */
+  discountBasisPoints: number;
+  /**
+   * quantity × unitPriceMinor × discountBasisPoints ÷ 10000, derived by the API.
+   */
+  discountMinor: number;
+  /**
+   * quantity × unitPriceMinor − discountMinor.
    */
   lineTotalMinor: number;
   /**
@@ -339,11 +347,100 @@ export type TransactionItemResponse = {
   updatedAt: string;
 };
 
+export type TransactionChargeResponse = {
+  id: string;
+  name: string;
+  /**
+   * Basis points (11% is 1100). Null when the amount was typed directly.
+   */
+  percentBasisPoints?: number | null;
+  amountMinor: number;
+  /**
+   * Order on the receipt.
+   */
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TransactionSplitLineResponse = {
+  category: CategorySummaryResponse;
+  /**
+   * The account this category is paid from.
+   */
+  accountId: string;
+  /**
+   * Denormalised so the split need not also fetch accounts.
+   */
+  accountName: string;
+  /**
+   * Sum of the lines filed under this category, in minor units.
+   */
+  itemsMinor: number;
+  /**
+   * This category's share of the receipt's additional charges, prorated by `itemsMinor`.
+   */
+  chargeShareMinor: number;
+  /**
+   * `itemsMinor` + `chargeShareMinor`.
+   */
+  owedMinor: number;
+};
+
+export type TransactionSettlementResponse = {
+  id: string;
+  /**
+   * What was owed at the moment it was settled, in minor units.
+   */
+  settledMinor: number;
+  settledAt: string;
+  /**
+   * The INCOME posted to the account that fronted the receipt.
+   */
+  inboundTransactionId?: string | null;
+  /**
+   * The EXPENSE posted to the account that owed the share.
+   */
+  outboundTransactionId?: string | null;
+  /**
+   * True when the receipt has been edited since, so what is owed now no longer matches what was paid back. Nothing is corrected automatically — the difference is the user's to settle or ignore.
+   */
+  isStale: boolean;
+};
+
+export type TransactionSplitDebtorResponse = {
+  accountId: string;
+  accountName: string;
+  /**
+   * What this wallet owes as the receipt currently stands, in minor units. Recomputed on every read, so it moves when the receipt is edited — including after it was settled.
+   */
+  owedMinor: number;
+  /**
+   * Null while the share is still outstanding.
+   */
+  settlement?: TransactionSettlementResponse | null;
+};
+
+export type TransactionSplitResponse = {
+  /**
+   * The paying account's own share: lines whose category is linked to it, or to no account at all, plus its prorated part of the charges. An uncategorised line, or one under an unassigned category, cannot be attributed to anyone else and stays here.
+   */
+  ownShareMinor: number;
+  /**
+   * One row per category owed to another wallet, largest first. What the figures are made of.
+   */
+  lines: Array<TransactionSplitLineResponse>;
+  /**
+   * `lines` rolled up per wallet, largest first. Who owes, and what has been settled.
+   */
+  debtors: Array<TransactionSplitDebtorResponse>;
+};
+
 export type TransactionResponse = {
   id: string;
   type: TransactionType;
   /**
-   * Positive integer in minor units; sign comes from `type`. On an EXPENSE it is derived — the sum of `items[].lineTotalMinor`, so a receipt with nothing itemised yet reads zero. On an INCOME it is the figure that was entered, and there are no items.
+   * Positive integer in minor units; sign comes from `type`. On an EXPENSE it is derived — the sum of `items[].lineTotalMinor` plus `charges[].amountMinor`, so a receipt with nothing on it yet reads zero. On an INCOME it is the figure that was entered, and there are neither items nor charges.
    */
   amountMinor: number;
   currency: string;
@@ -360,6 +457,18 @@ export type TransactionResponse = {
    * What was bought, in receipt order. Empty until an expense is itemised, and always empty on income — the API refuses to write items on an INCOME transaction.
    */
   items: Array<TransactionItemResponse>;
+  /**
+   * Tax, service charge and the like — money paid on top of what was bought, in receipt order. Counts towards `amountMinor` but carries no category, so it is absent from the summary's per-category breakdown. Always empty on income.
+   */
+  charges: Array<TransactionChargeResponse>;
+  /**
+   * How this receipt divides between the account that paid it and accounts it was partly paid for — derived from each line's category and the account that category is linked to. Null when nothing is owed to anyone else, and on every income row.
+   */
+  split?: TransactionSplitResponse | null;
+  /**
+   * True when this row was posted by settling a split rather than entered by hand. Such a row is not editable: its amount is authoritative, and the API refuses every write to it so the expense recompute can never reach it. Undo it by unsettling instead.
+   */
+  isSettlement: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -394,6 +503,18 @@ export type TransactionsSummaryResponse = {
   byCategory: Array<CategoryTotalResponse>;
 };
 
+export type CreateTransactionChargeDto = {
+  name: string;
+  /**
+   * Basis points (11% is 1100). The percentage that produced `amountMinor`, if any.
+   */
+  percentBasisPoints?: number | null;
+  /**
+   * What the charge came to, in minor units of the transaction's currency.
+   */
+  amountMinor: number;
+};
+
 export type CreateTransactionDto = {
   accountId: string;
   /**
@@ -415,6 +536,10 @@ export type CreateTransactionDto = {
   occurredAt: string;
   description?: string;
   notes?: string;
+  /**
+   * EXPENSE only. Replaces every existing charge; `[]` clears them, absent leaves them alone.
+   */
+  charges?: Array<CreateTransactionChargeDto>;
 };
 
 export type UpdateTransactionDto = {
@@ -438,6 +563,10 @@ export type UpdateTransactionDto = {
   occurredAt?: string;
   description?: string;
   notes?: string;
+  /**
+   * EXPENSE only. Replaces every existing charge; `[]` clears them, absent leaves them alone.
+   */
+  charges?: Array<CreateTransactionChargeDto>;
 };
 
 export type CreateTransactionItemDto = {
@@ -461,6 +590,10 @@ export type CreateTransactionItemDto = {
    * Price for one unit, in minor units of the transaction's currency.
    */
   unitPriceMinor: number;
+  /**
+   * Basis points off this line (10% is 1000). The API derives the money from it.
+   */
+  discountBasisPoints?: number;
 };
 
 export type UpdateTransactionItemDto = {
@@ -484,6 +617,21 @@ export type UpdateTransactionItemDto = {
    * Price for one unit, in minor units of the transaction's currency.
    */
   unitPriceMinor?: number;
+  /**
+   * Basis points off this line (10% is 1000). The API derives the money from it.
+   */
+  discountBasisPoints?: number;
+};
+
+export type CreateSettlementDto = {
+  /**
+   * The wallet that owed a share of this receipt and has now paid it back.
+   */
+  owedAccountId: string;
+  /**
+   * When the money moved. Defaults to now, which is also when the rows are posted.
+   */
+  settledAt?: string;
 };
 
 export type AuthRegisterData = {
@@ -1047,3 +1195,36 @@ export type TransactionItemsUpdateResponses = {
 
 export type TransactionItemsUpdateResponse =
   TransactionItemsUpdateResponses[keyof TransactionItemsUpdateResponses];
+
+export type TransactionSettlementsSettleData = {
+  body: CreateSettlementDto;
+  path: {
+    transactionId: string;
+  };
+  query?: never;
+  url: '/transactions/{transactionId}/settlements';
+};
+
+export type TransactionSettlementsSettleResponses = {
+  201: TransactionResponse;
+};
+
+export type TransactionSettlementsSettleResponse =
+  TransactionSettlementsSettleResponses[keyof TransactionSettlementsSettleResponses];
+
+export type TransactionSettlementsUnsettleData = {
+  body?: never;
+  path: {
+    transactionId: string;
+    owedAccountId: string;
+  };
+  query?: never;
+  url: '/transactions/{transactionId}/settlements/{owedAccountId}';
+};
+
+export type TransactionSettlementsUnsettleResponses = {
+  200: TransactionResponse;
+};
+
+export type TransactionSettlementsUnsettleResponse =
+  TransactionSettlementsUnsettleResponses[keyof TransactionSettlementsUnsettleResponses];

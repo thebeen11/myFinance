@@ -65,6 +65,10 @@ import type {
   TransactionItemsUpdateResponses,
   TransactionsCreateData,
   TransactionsCreateResponses,
+  TransactionSettlementsSettleData,
+  TransactionSettlementsSettleResponses,
+  TransactionSettlementsUnsettleData,
+  TransactionSettlementsUnsettleResponses,
   TransactionsFindAllData,
   TransactionsFindAllResponses,
   TransactionsFindOneData,
@@ -615,3 +619,35 @@ export const transactionItemsUpdate = <ThrowOnError extends boolean = false>(
       ...options.headers,
     },
   });
+
+/**
+ * Record that a wallet paid back its share of this receipt. Settles the whole of what it currently owes and posts both sides of the money.
+ */
+export const transactionSettlementsSettle = <ThrowOnError extends boolean = false>(
+  options: Options<TransactionSettlementsSettleData, ThrowOnError>,
+): RequestResult<TransactionSettlementsSettleResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).post<TransactionSettlementsSettleResponses, unknown, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/transactions/{transactionId}/settlements',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+  });
+
+/**
+ * Undo a settlement, removing both transactions it posted.
+ */
+export const transactionSettlementsUnsettle = <ThrowOnError extends boolean = false>(
+  options: Options<TransactionSettlementsUnsettleData, ThrowOnError>,
+): RequestResult<TransactionSettlementsUnsettleResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).delete<TransactionSettlementsUnsettleResponses, unknown, ThrowOnError>(
+    {
+      responseType: 'json',
+      security: [{ scheme: 'bearer', type: 'http' }],
+      url: '/transactions/{transactionId}/settlements/{owedAccountId}',
+      ...options,
+    },
+  );

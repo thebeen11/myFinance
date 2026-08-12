@@ -8,3 +8,5 @@ export { toMinor } from './money/to-minor';
 export { fromMinor } from './money/from-minor';
 export { formatMoney } from './money/format-money';
 export type { FormatMoneyOptions } from './money/format-money';
+export { BASIS_POINTS_SCALE, applyBasisPoints } from './money/basis-points';
+export { allocateProportionally } from './money/allocate';

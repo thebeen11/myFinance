@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { TransactionType } from '@myfinance/shared';
+import { TransactionType, applyBasisPoints } from '@myfinance/shared';
 
 import { PrismaService } from '../../database/prisma.service';
 import { Prisma } from '../../generated/prisma/client';
@@ -12,6 +12,8 @@ import type {
 import { CreateTransactionItemDto } from '../models/create-transaction-item.dto';
 import { TransactionResponse } from '../models/transaction.response';
 import { UpdateTransactionItemDto } from '../models/update-transaction-item.dto';
+
+import { assertNotSettlementPosting } from './assert-not-settlement-posting';
 import { TransactionsService } from './transactions.service';
 
 /**
@@ -22,6 +24,10 @@ import { TransactionsService } from './transactions.service';
  * total is not stored data a client may set, it is a cached sum, and a partial
  * failure that updated one without the other would leave a receipt disagreeing
  * with itself with nothing to detect it.
+ *
+ * The recompute itself lives on `TransactionsService`, because additional charges
+ * feed the same column from a different write path and the two must never derive
+ * it differently.
  *
  * Each method returns the whole parent `TransactionResponse` rather than the line
  * it touched, so an item editor re-renders its total and its rows from one reply.
@@ -58,12 +64,12 @@ export class TransactionItemsService {
           name: dto.name,
           quantity: dto.quantity,
           unitPriceMinor: dto.unitPriceMinor,
-          lineTotalMinor: dto.quantity * dto.unitPriceMinor,
+          ...this.deriveTotals(dto.quantity, dto.unitPriceMinor, dto.discountBasisPoints ?? 0),
           position: (last?.position ?? -1) + 1,
         },
       });
 
-      await this.syncTotal(tx, transactionId);
+      await this.transactionsService.recomputeTotal(tx, transactionId);
       await this.syncLastPrice(tx, product, transaction.currency, dto.unitPriceMinor);
     });
 
@@ -87,8 +93,12 @@ export class TransactionItemsService {
     // not looked up as an id. The write below keeps the two apart.
     const product = await this.getProductOrThrow(userId, dto.productId ?? undefined);
 
+    // Merged rather than patched, because all three feed one derivation: editing
+    // only the quantity still has to re-apply the rate the line already carries,
+    // or the stored discount would describe the price it used to be.
     const quantity = dto.quantity ?? existing.quantity;
     const unitPriceMinor = dto.unitPriceMinor ?? existing.unitPriceMinor;
+    const discountBasisPoints = dto.discountBasisPoints ?? existing.discountBasisPoints;
 
     await this.prisma.$transaction(async (tx) => {
       await tx.transactionItem.update({
@@ -100,11 +110,11 @@ export class TransactionItemsService {
           name: dto.name,
           quantity,
           unitPriceMinor,
-          lineTotalMinor: quantity * unitPriceMinor,
+          ...this.deriveTotals(quantity, unitPriceMinor, discountBasisPoints),
         },
       });
 
-      await this.syncTotal(tx, transactionId);
+      await this.transactionsService.recomputeTotal(tx, transactionId);
       await this.syncLastPrice(tx, product, transaction.currency, unitPriceMinor);
     });
 
@@ -121,27 +131,36 @@ export class TransactionItemsService {
 
     await this.prisma.$transaction(async (tx) => {
       await tx.transactionItem.delete({ where: { id: itemId } });
-      await this.syncTotal(tx, transactionId);
+      await this.transactionsService.recomputeTotal(tx, transactionId);
     });
 
     return this.transactionsService.findOne(userId, transactionId);
   }
 
-  /** Re-derives the receipt total from its lines. Removing the last one returns it to zero. */
-  private async syncTotal(tx: Prisma.TransactionClient, transactionId: string): Promise<void> {
-    const { _sum } = await tx.transactionItem.aggregate({
-      where: { transactionId },
-      _sum: { lineTotalMinor: true },
-    });
+  /**
+   * The money a line derives from the three figures a client may set.
+   *
+   * One helper rather than the arithmetic twice, because `create` and `update`
+   * would otherwise be free to round differently and only one of them would be
+   * covered the day the rule changes.
+   */
+  private deriveTotals(
+    quantity: number,
+    unitPriceMinor: number,
+    discountBasisPoints: number,
+  ): Pick<TransactionItemModel, 'discountBasisPoints' | 'discountMinor' | 'lineTotalMinor'> {
+    const grossMinor = quantity * unitPriceMinor;
+    const discountMinor = applyBasisPoints(grossMinor, discountBasisPoints);
 
-    await tx.transaction.update({
-      where: { id: transactionId },
-      data: { amountMinor: _sum.lineTotalMinor ?? 0 },
-    });
+    return { discountBasisPoints, discountMinor, lineTotalMinor: grossMinor - discountMinor };
   }
 
   /**
    * Feeds what was actually paid back into the catalogue.
+   *
+   * Deliberately the **undiscounted** unit price: the catalogue holds the shelf
+   * price the next basket prefills from, and a one-off promotion is a property of
+   * that receipt, not of the product.
    *
    * Guarded on currency: `lastPriceMinor` is stored in the product's own currency,
    * and a receipt paid from a 2-decimal account would otherwise write a figure at
@@ -166,10 +185,14 @@ export class TransactionItemsService {
    * See the note on TransactionsService.getAccountOrThrow — findUnique cannot filter by owner.
    *
    * Also the single gate that keeps income out of this service. Every write here
-   * ends in `syncTotal`, which overwrites `amountMinor` with the sum of the lines —
-   * on an income transaction, whose amount was entered rather than derived, that
-   * would silently reset the figure to zero. Refusing the line is what makes the
-   * two rules for that column safe to hold at once.
+   * ends in `TransactionsService.recomputeTotal`, which overwrites `amountMinor`
+   * with the sum of the lines and charges — on an income transaction, whose amount
+   * was entered rather than derived, that would silently reset the figure to zero.
+   * Refusing the line is what makes the two rules for that column safe to hold at once.
+   *
+   * A settlement posting is refused for exactly the same reason: its amount was
+   * written once and is authoritative, so a line attached here would send the
+   * recompute over it and zero the repayment.
    */
   private async getTransactionOrThrow(
     userId: string,
@@ -188,6 +211,8 @@ export class TransactionItemsService {
         'Income is recorded as a single amount on its account and has no line items.',
       );
     }
+
+    assertNotSettlementPosting(transaction, 'itemised');
 
     return transaction;
   }

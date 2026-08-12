@@ -23,7 +23,19 @@ export class TransactionItemResponse {
   @ApiProperty({ example: 3500 })
   unitPriceMinor!: number;
 
-  @ApiProperty({ example: 7000, description: 'quantity × unitPriceMinor.' })
+  @ApiProperty({
+    example: 1000,
+    description: 'Basis points off this line (10% is 1000). Zero when nothing was discounted.',
+  })
+  discountBasisPoints!: number;
+
+  @ApiProperty({
+    example: 700,
+    description: 'quantity × unitPriceMinor × discountBasisPoints ÷ 10000, derived by the API.',
+  })
+  discountMinor!: number;
+
+  @ApiProperty({ example: 6300, description: 'quantity × unitPriceMinor − discountMinor.' })
   lineTotalMinor!: number;
 
   @ApiProperty({ description: 'Order on the receipt.' })

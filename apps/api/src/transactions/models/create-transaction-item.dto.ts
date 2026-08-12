@@ -1,5 +1,15 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, IsOptional, IsString, IsUUID, MaxLength, Min, MinLength } from 'class-validator';
+import {
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  MaxLength,
+  Min,
+  MinLength,
+} from 'class-validator';
+import { BASIS_POINTS_SCALE } from '@myfinance/shared';
 
 export class CreateTransactionItemDto {
   /**
@@ -42,4 +52,24 @@ export class CreateTransactionItemDto {
   @IsInt()
   @Min(0)
   unitPriceMinor!: number;
+
+  /**
+   * The rate, not the money: the API derives `discountMinor` and `lineTotalMinor`
+   * from it, the same way it already owns the line total. Absent means no discount.
+   *
+   * Capped at 100%, unlike a charge's percentage, because a larger one would make
+   * the line total negative and `Transaction.amountMinor` is always positive.
+   */
+  @ApiPropertyOptional({
+    example: 1000,
+    minimum: 0,
+    maximum: BASIS_POINTS_SCALE,
+    default: 0,
+    description: 'Basis points off this line (10% is 1000). The API derives the money from it.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(BASIS_POINTS_SCALE)
+  discountBasisPoints?: number;
 }

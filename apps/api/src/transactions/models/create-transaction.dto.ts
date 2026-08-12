@@ -1,6 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { TransactionType } from '@myfinance/shared';
+import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsDateString,
   IsEnum,
   IsInt,
@@ -9,7 +12,10 @@ import {
   IsUUID,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
+
+import { CreateTransactionChargeDto } from './create-transaction-charge.dto';
 
 /**
  * One transaction, entered two different ways depending on its `type`.
@@ -94,4 +100,25 @@ export class CreateTransactionDto {
   @IsString()
   @MaxLength(1000)
   notes?: string;
+
+  /**
+   * Tax, service charge, delivery — money paid on top of what was bought.
+   * Expense only, and rejected on income for the same reason line items are.
+   *
+   * **Replace-all, unlike line items:** an array replaces every charge on the
+   * transaction, `[]` clears them, and an absent field leaves them alone. They
+   * are edited as a set because they are read off one receipt in one sitting,
+   * which is also why they have no endpoints of their own.
+   */
+  @ApiPropertyOptional({
+    type: [CreateTransactionChargeDto],
+    description:
+      'EXPENSE only. Replaces every existing charge; `[]` clears them, absent leaves them alone.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => CreateTransactionChargeDto)
+  charges?: CreateTransactionChargeDto[];
 }

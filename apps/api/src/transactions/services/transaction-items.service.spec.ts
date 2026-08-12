@@ -21,6 +21,7 @@ const transaction = {
   type: TransactionType.EXPENSE,
   currency: 'IDR',
   amountMinor: 0,
+  settlementId: null,
 };
 
 const expenseCategory = {
@@ -48,8 +49,18 @@ const storedItem = {
   name: 'Indomie Goreng',
   quantity: 2,
   unitPriceMinor: 3_500,
+  discountBasisPoints: 0,
+  discountMinor: 0,
   lineTotalMinor: 7_000,
   position: 0,
+};
+
+/** The same line at 10% off: gross 7_000, discount 700, net 6_300. */
+const discountedItem = {
+  ...storedItem,
+  discountBasisPoints: 1_000,
+  discountMinor: 700,
+  lineTotalMinor: 6_300,
 };
 
 const createDto = {
@@ -66,9 +77,7 @@ describe('TransactionItemsService', () => {
       create: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
-      aggregate: jest.fn(),
     },
-    transaction: { update: jest.fn() },
     product: { update: jest.fn() },
   };
 
@@ -80,7 +89,9 @@ describe('TransactionItemsService', () => {
     $transaction: jest.fn(),
   };
 
-  const transactionsService = { findOne: jest.fn() };
+  // The recompute itself is owned and unit-tested by TransactionsService; what
+  // matters here is that every write reaches it, on the same client.
+  const transactionsService = { findOne: jest.fn(), recomputeTotal: jest.fn() };
 
   let service: TransactionItemsService;
 
@@ -91,7 +102,6 @@ describe('TransactionItemsService', () => {
     prisma.$transaction.mockImplementation(
       <T>(callback: (client: typeof tx) => Promise<T>): Promise<T> => callback(tx),
     );
-    tx.transactionItem.aggregate.mockResolvedValue({ _sum: { lineTotalMinor: 7_000 } });
     tx.transactionItem.findFirst.mockResolvedValue(null);
     transactionsService.findOne.mockResolvedValue({ id: TRANSACTION_ID });
 
@@ -112,29 +122,48 @@ describe('TransactionItemsService', () => {
     prisma.transactionItem.findFirst.mockResolvedValue(storedItem);
   };
 
+  /**
+   * A settlement posting's amount was written once and is authoritative. A line
+   * attached here would send `recomputeTotal` over it and zero the repayment —
+   * the same hazard the income gate above exists to close.
+   */
+  it('refuses to itemise a settlement posting', async () => {
+    prisma.transaction.findFirst.mockResolvedValue({
+      ...transaction,
+      settlementId: 'settlement-1',
+    });
+
+    await expect(service.create(USER_ID, TRANSACTION_ID, createDto)).rejects.toThrow(
+      /Undo the reimbursement/,
+    );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
   describe('the receipt total follows its lines', () => {
-    it('re-derives the parent total from the sum of every line', async () => {
+    it('re-derives the parent total on the same client that wrote the line', async () => {
       armHappyPath();
 
       await service.create(USER_ID, TRANSACTION_ID, createDto);
 
-      expect(tx.transaction.update).toHaveBeenCalledWith({
-        where: { id: TRANSACTION_ID },
-        data: { amountMinor: 7_000 },
-      });
+      // Same `tx`, so the write and the recompute stand or fall together.
+      expect(transactionsService.recomputeTotal).toHaveBeenCalledWith(tx, TRANSACTION_ID);
     });
 
-    it('returns the parent to zero when the last line is removed', async () => {
+    it('re-derives the parent total when a line is removed', async () => {
       armHappyPath();
-      // An aggregate over no rows sums to null, not 0.
-      tx.transactionItem.aggregate.mockResolvedValue({ _sum: { lineTotalMinor: null } });
 
       await service.remove(USER_ID, TRANSACTION_ID, ITEM_ID);
 
-      expect(tx.transaction.update).toHaveBeenCalledWith({
-        where: { id: TRANSACTION_ID },
-        data: { amountMinor: 0 },
-      });
+      expect(tx.transactionItem.delete).toHaveBeenCalledWith({ where: { id: ITEM_ID } });
+      expect(transactionsService.recomputeTotal).toHaveBeenCalledWith(tx, TRANSACTION_ID);
+    });
+
+    it('re-derives the parent total when a line is edited', async () => {
+      armHappyPath();
+
+      await service.update(USER_ID, TRANSACTION_ID, ITEM_ID, { quantity: 3 });
+
+      expect(transactionsService.recomputeTotal).toHaveBeenCalledWith(tx, TRANSACTION_ID);
     });
 
     it('stores quantity × unit price as the line total', async () => {
@@ -158,6 +187,100 @@ describe('TransactionItemsService', () => {
         expect.objectContaining({
           // 3 × the stored 3_500, not 3 × whatever the dto happened to carry.
           data: expect.objectContaining({ lineTotalMinor: 10_500 }) as object,
+        }),
+      );
+    });
+  });
+
+  describe('the discount is a rate, and the money follows it', () => {
+    it('derives the discount and the net line total from the percentage', async () => {
+      armHappyPath();
+
+      await service.create(USER_ID, TRANSACTION_ID, { ...createDto, discountBasisPoints: 1_000 });
+
+      expect(tx.transactionItem.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            discountBasisPoints: 1_000,
+            discountMinor: 700,
+            lineTotalMinor: 6_300,
+          }) as object,
+        }),
+      );
+    });
+
+    it('reads an absent percentage as no discount rather than leaving the column unset', async () => {
+      armHappyPath();
+
+      await service.create(USER_ID, TRANSACTION_ID, createDto);
+
+      expect(tx.transactionItem.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            discountBasisPoints: 0,
+            discountMinor: 0,
+            lineTotalMinor: 7_000,
+          }) as object,
+        }),
+      );
+    });
+
+    it('re-applies the stored rate when only the quantity changes', async () => {
+      prisma.transaction.findFirst.mockResolvedValue(transaction);
+      prisma.category.findFirst.mockResolvedValue(expenseCategory);
+      prisma.transactionItem.findFirst.mockResolvedValue(discountedItem);
+
+      await service.update(USER_ID, TRANSACTION_ID, ITEM_ID, { quantity: 3 });
+
+      // The whole point of deriving rather than storing the money: a stale 700
+      // here would describe the price this line used to be.
+      expect(tx.transactionItem.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            discountBasisPoints: 1_000,
+            discountMinor: 1_050,
+            lineTotalMinor: 9_450,
+          }) as object,
+        }),
+      );
+    });
+
+    it('rounds a rate that does not divide evenly, once', async () => {
+      armHappyPath();
+
+      // 7% of 6_500 is 455, and IDR has no minor unit to hide the remainder in.
+      await service.create(USER_ID, TRANSACTION_ID, {
+        ...createDto,
+        quantity: 1,
+        unitPriceMinor: 6_500,
+        discountBasisPoints: 700,
+      });
+
+      expect(tx.transactionItem.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            discountMinor: 455,
+            lineTotalMinor: 6_045,
+          }) as object,
+        }),
+      );
+    });
+
+    it('clears the discount when the rate is edited to zero', async () => {
+      prisma.transaction.findFirst.mockResolvedValue(transaction);
+      prisma.category.findFirst.mockResolvedValue(expenseCategory);
+      prisma.transactionItem.findFirst.mockResolvedValue(discountedItem);
+
+      // Zero is a real instruction, not "unset" — the `??` merge has to let it through.
+      await service.update(USER_ID, TRANSACTION_ID, ITEM_ID, { discountBasisPoints: 0 });
+
+      expect(tx.transactionItem.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            discountBasisPoints: 0,
+            discountMinor: 0,
+            lineTotalMinor: 7_000,
+          }) as object,
         }),
       );
     });
@@ -307,6 +430,24 @@ describe('TransactionItemsService', () => {
       await service.create(USER_ID, TRANSACTION_ID, createDto);
 
       expect(tx.product.update).not.toHaveBeenCalled();
+    });
+
+    it('writes back the undiscounted price, not what the promotion came to', async () => {
+      armHappyPath();
+      prisma.product.findFirst.mockResolvedValue(product);
+
+      await service.create(USER_ID, TRANSACTION_ID, {
+        ...createDto,
+        productId: PRODUCT_ID,
+        discountBasisPoints: 1_000,
+      });
+
+      // The catalogue holds the shelf price the next basket prefills from; a
+      // one-off promotion belongs to that receipt, not to the product.
+      expect(tx.product.update).toHaveBeenCalledWith({
+        where: { id: PRODUCT_ID },
+        data: { lastPriceMinor: 3_500 },
+      });
     });
   });
 

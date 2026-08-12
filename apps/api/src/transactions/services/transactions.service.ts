@@ -5,6 +5,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { Prisma } from '../../generated/prisma/client';
 import type { AccountModel } from '../../generated/prisma/models';
 import { CategoryTotalResponse } from '../models/category-total.response';
+import { CreateTransactionChargeDto } from '../models/create-transaction-charge.dto';
 import { CreateTransactionDto } from '../models/create-transaction.dto';
 import { PaginatedTransactionsResponse } from '../models/paginated-transactions.response';
 import { QuerySummaryDto } from '../models/query-summary.dto';
@@ -13,24 +14,10 @@ import { TransactionResponse } from '../models/transaction.response';
 import { TransactionsSummaryResponse } from '../models/transactions-summary.response';
 import { UpdateTransactionDto } from '../models/update-transaction.dto';
 
-/** Every read returns the account, merchant and lines a receipt needs to render. */
-const transactionInclude = {
-  account: { select: { id: true, name: true, type: true } },
-  merchant: { select: { id: true, name: true } },
-  /** The header's own category — income's classification. Always null on an expense. */
-  category: { select: { id: true, name: true, kind: true, color: true } },
-  items: {
-    include: {
-      product: { select: { id: true, code: true, name: true } },
-      category: { select: { id: true, name: true, kind: true, color: true } },
-    },
-    orderBy: { position: 'asc' },
-  },
-} satisfies Prisma.TransactionInclude;
-
-type TransactionWithRelations = Prisma.TransactionGetPayload<{
-  include: typeof transactionInclude;
-}>;
+import { assertNotSettlementPosting } from './assert-not-settlement-posting';
+import { computeSplit } from './compute-split';
+import { transactionInclude } from './transaction-include';
+import type { TransactionWithRelations } from './transaction-include';
 
 /** One row of the summary's line-item grouping, before category names are joined on. */
 interface CategoryLineTotal {
@@ -38,6 +25,9 @@ interface CategoryLineTotal {
   type: TransactionType;
   totalMinor: number;
 }
+
+const sumCharges = (charges: CreateTransactionChargeDto[] | undefined): number =>
+  (charges ?? []).reduce((total, charge) => total + charge.amountMinor, 0);
 
 @Injectable()
 export class TransactionsService {
@@ -88,6 +78,7 @@ export class TransactionsService {
     await this.assertMerchantOwned(userId, dto.merchantId ?? undefined);
 
     const { amountMinor, categoryId } = await this.resolvePosting(userId, dto.type, dto);
+    const charges = this.resolveCharges(dto.type, dto.charges);
 
     const transaction = await this.prisma.transaction.create({
       data: {
@@ -95,9 +86,23 @@ export class TransactionsService {
         accountId: dto.accountId,
         merchantId: dto.merchantId ?? null,
         type: dto.type,
-        // Income posts its own figure; an expense starts at zero and grows as it
-        // is itemised. See `resolvePosting`.
-        amountMinor: amountMinor ?? 0,
+        // Income posts its own figure; an expense starts at whatever it was
+        // charged before anything is itemised — nothing, unless charges came in
+        // with it. See `resolvePosting`.
+        amountMinor: amountMinor ?? sumCharges(charges),
+        ...(charges
+          ? {
+              charges: {
+                create: charges.map((charge, position) => ({
+                  userId,
+                  name: charge.name,
+                  percentBasisPoints: charge.percentBasisPoints ?? null,
+                  amountMinor: charge.amountMinor,
+                  position,
+                })),
+              },
+            }
+          : {}),
         categoryId: categoryId ?? null,
         currency: account.currency,
         occurredAt: new Date(dto.occurredAt),
@@ -121,6 +126,8 @@ export class TransactionsService {
       throw new NotFoundException(`Transaction ${id} not found`);
     }
 
+    assertNotSettlementPosting(existing, 'edited');
+
     // `?? undefined` so an explicit null — "clear the merchant" — is not looked up as an id.
     await this.assertMerchantOwned(userId, dto.merchantId ?? undefined);
     await this.assertTypeChangeIsSafe(id, dto.type, existing.type);
@@ -134,30 +141,87 @@ export class TransactionsService {
       existing.type,
     );
 
+    const charges = this.resolveCharges(dto.type ?? existing.type, dto.charges);
+
     // Moving a transaction to another account re-stamps the currency — and that
     // account has to be one of ours, or this is a way to write into someone else's.
     const currency = dto.accountId
       ? (await this.getAccountOrThrow(userId, dto.accountId)).currency
       : undefined;
 
-    const transaction = await this.prisma.transaction.update({
-      where: { id },
-      data: {
-        accountId: dto.accountId,
-        // No `??` fallback: undefined leaves the link alone, null clears it.
-        merchantId: dto.merchantId,
-        type: dto.type,
-        amountMinor,
-        categoryId,
-        currency,
-        occurredAt: dto.occurredAt ? new Date(dto.occurredAt) : undefined,
-        description: dto.description,
-        notes: dto.notes,
-      },
-      include: transactionInclude,
+    const data: Prisma.TransactionUncheckedUpdateInput = {
+      accountId: dto.accountId,
+      // No `??` fallback: undefined leaves the link alone, null clears it.
+      merchantId: dto.merchantId,
+      type: dto.type,
+      amountMinor,
+      categoryId,
+      currency,
+      occurredAt: dto.occurredAt ? new Date(dto.occurredAt) : undefined,
+      description: dto.description,
+      notes: dto.notes,
+    };
+
+    if (!charges) {
+      const transaction = await this.prisma.transaction.update({
+        where: { id },
+        data,
+        include: transactionInclude,
+      });
+
+      return this.toResponse(transaction);
+    }
+
+    // Replace-all, and atomic with the recompute: a partial failure that swapped
+    // the rows without re-deriving the header would leave a receipt disagreeing
+    // with itself, the same hazard `recomputeTotal` exists to close.
+    await this.prisma.$transaction(async (tx) => {
+      await tx.transaction.update({ where: { id }, data });
+      await tx.transactionCharge.deleteMany({ where: { transactionId: id } });
+      await tx.transactionCharge.createMany({
+        data: charges.map((charge, position) => ({
+          userId,
+          transactionId: id,
+          name: charge.name,
+          percentBasisPoints: charge.percentBasisPoints ?? null,
+          amountMinor: charge.amountMinor,
+          position,
+        })),
+      });
+      await this.recomputeTotal(tx, id);
     });
 
-    return this.toResponse(transaction);
+    return this.findOne(userId, id);
+  }
+
+  /**
+   * Re-derives an expense's cached total from everything hanging off it.
+   *
+   * Lives here rather than beside either collection because two services write
+   * rows that feed this one column — line items and charges — and a total that
+   * counted only the collection last touched would be wrong with nothing to
+   * detect it. Takes the caller's transaction client so the recompute lands in
+   * the same atomic unit as the write that made it necessary.
+   *
+   * Never call this for an income transaction: its amount was entered, not
+   * derived, and this would reset it to zero. Both callers gate on that first.
+   */
+  async recomputeTotal(tx: Prisma.TransactionClient, transactionId: string): Promise<void> {
+    const [items, charges] = await Promise.all([
+      tx.transactionItem.aggregate({
+        where: { transactionId },
+        _sum: { lineTotalMinor: true },
+      }),
+      tx.transactionCharge.aggregate({
+        where: { transactionId },
+        _sum: { amountMinor: true },
+      }),
+    ]);
+
+    // An aggregate over no rows sums to null, not 0 — an emptied receipt is zero.
+    const total = (items._sum.lineTotalMinor ?? 0) + (charges._sum.amountMinor ?? 0);
+
+    await tx.transaction.update({ where: { id: transactionId }, data: { amountMinor: total } });
   }
 
   async remove(userId: string, id: string): Promise<void> {
@@ -166,6 +230,8 @@ export class TransactionsService {
     if (!existing) {
       throw new NotFoundException(`Transaction ${id} not found`);
     }
+
+    assertNotSettlementPosting(existing, 'deleted');
 
     await this.prisma.transaction.delete({ where: { id } });
   }
@@ -183,6 +249,12 @@ export class TransactionsService {
    * categories live, while income groups the *headers* themselves, since it has no
    * lines and carries its category on the row. `type` is not a column on a line,
    * which is why the expense side is its own query rather than a grouping by both.
+   *
+   * **The two grains no longer reconcile, on purpose.** `expenseMinor` counts headers, so it includes
+   * additional charges; `byCategory` groups lines, and a charge has no category to be grouped under.
+   * The breakdown therefore falls short of the headline by exactly the charges in the window. That is
+   * the accepted cost of keeping tax and service charge free of a classification they do not have —
+   * do not "fix" it by inventing a bucket for them without first deciding what that bucket means.
    */
   async summarise(userId: string, query: QuerySummaryDto): Promise<TransactionsSummaryResponse> {
     const { from, to } = this.resolveWindow(query);
@@ -190,6 +262,12 @@ export class TransactionsService {
     const where: Prisma.TransactionWhereInput = {
       userId,
       occurredAt: { gte: from, lt: to },
+      // Settlement postings are excluded here and nowhere else. They are real
+      // movements, so `getBalance` must count them or the wallets stay wrong — but
+      // both legs sit inside the same person's accounts, so counting them here would
+      // add a repayment to income and the same figure to expense for money that
+      // never entered or left. Balances see them; summaries do not.
+      settlementId: null,
       ...(query.accountId ? { accountId: query.accountId } : {}),
     };
 
@@ -366,10 +444,10 @@ export class TransactionsService {
    * Flipping a transaction between income and expense is only safe while its lines
    * do not contradict the destination.
    *
-   * Becoming **income** requires no lines at all: income is a single amount posted
-   * to the account, and `amountMinor` stops being derived the moment the type
-   * changes — leaving lines behind would strand rows the item endpoints now refuse
-   * to touch, under a total that no longer answers to them.
+   * Becoming **income** requires no lines and no charges at all: income is a single
+   * amount posted to the account, and `amountMinor` stops being derived the moment
+   * the type changes — leaving either behind would strand rows the write paths now
+   * refuse to touch, under a total that no longer answers to them.
    *
    * Becoming **expense** only requires the lines to agree in kind, because the API
    * refuses to write a line whose kind differs from its transaction's type; letting
@@ -384,11 +462,29 @@ export class TransactionsService {
     if (!nextType || nextType === currentType) return;
 
     if (nextType === TransactionType.INCOME) {
-      const lines = await this.prisma.transactionItem.count({ where: { transactionId } });
+      const [lines, charges, settlements] = await Promise.all([
+        this.prisma.transactionItem.count({ where: { transactionId } }),
+        this.prisma.transactionCharge.count({ where: { transactionId } }),
+        this.prisma.transactionSettlement.count({ where: { transactionId } }),
+      ]);
+
+      // A settlement is derived from the lines, and income has none. Left in place it
+      // would keep two postings standing against a receipt that no longer explains them.
+      if (settlements > 0) {
+        throw new BadRequestException(
+          `Cannot change this transaction to INCOME: ${settlements} of its split shares have been reimbursed. Undo them first.`,
+        );
+      }
 
       if (lines > 0) {
         throw new BadRequestException(
           `Cannot change this transaction to INCOME: income is a single amount and carries no line items, but this one has ${lines}. Remove them first.`,
+        );
+      }
+
+      if (charges > 0) {
+        throw new BadRequestException(
+          `Cannot change this transaction to INCOME: income carries no additional charges, but this one has ${charges}. Remove them first.`,
         );
       }
 
@@ -471,6 +567,30 @@ export class TransactionsService {
   }
 
   /**
+   * Charges are an expense's, for the same reason line items are: every path that
+   * writes one ends in `recomputeTotal`, which would overwrite an entered income
+   * figure with a sum it never agreed to.
+   *
+   * Returns `undefined` when the caller said nothing about charges — the signal to
+   * leave the existing rows alone. An empty array is a real instruction and comes
+   * back as one.
+   */
+  private resolveCharges(
+    type: TransactionType,
+    charges: CreateTransactionChargeDto[] | undefined,
+  ): CreateTransactionChargeDto[] | undefined {
+    if (charges === undefined) return undefined;
+
+    if (type === TransactionType.INCOME) {
+      throw new BadRequestException(
+        'Income is a single amount posted to its account and carries no additional charges.',
+      );
+    }
+
+    return charges;
+  }
+
+  /**
    * Resolves the header category of an income transaction: ours, and filed as income.
    *
    * Deliberately does not check the category's own `accountId` — mirroring
@@ -519,17 +639,40 @@ export class TransactionsService {
       account: transaction.account,
       merchant: transaction.merchant,
       category: transaction.category,
+      split: computeSplit(transaction),
+      isSettlement: transaction.settlementId !== null,
       items: transaction.items.map((item) => ({
         id: item.id,
         name: item.name,
         quantity: item.quantity,
         unitPriceMinor: item.unitPriceMinor,
+        discountBasisPoints: item.discountBasisPoints,
+        discountMinor: item.discountMinor,
         lineTotalMinor: item.lineTotalMinor,
         position: item.position,
         product: item.product,
-        category: item.category,
+        // Mapped field by field rather than passed through: the include now joins the
+        // category's account so a split can be derived, and that join is not part of
+        // what a line item exposes.
+        category: item.category
+          ? {
+              id: item.category.id,
+              name: item.category.name,
+              kind: item.category.kind,
+              color: item.category.color,
+            }
+          : null,
         createdAt: item.createdAt.toISOString(),
         updatedAt: item.updatedAt.toISOString(),
+      })),
+      charges: transaction.charges.map((charge) => ({
+        id: charge.id,
+        name: charge.name,
+        percentBasisPoints: charge.percentBasisPoints,
+        amountMinor: charge.amountMinor,
+        position: charge.position,
+        createdAt: charge.createdAt.toISOString(),
+        updatedAt: charge.updatedAt.toISOString(),
       })),
       createdAt: transaction.createdAt.toISOString(),
       updatedAt: transaction.updatedAt.toISOString(),

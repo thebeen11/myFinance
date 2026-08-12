@@ -2,7 +2,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { fromMinor, toMinor } from '@myfinance/shared';
+import { applyBasisPoints, fromMinor, toMinor } from '@myfinance/shared';
 import { useEffect } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/select';
 import { useProducts } from '@/hooks/use-finance-queries';
 import { categoriesOfKind, noCategoriesOfKindReason } from '@/lib/category-selection';
+import { cn } from '@/lib/utils';
 import { money } from '@/lib/format';
 import { queryKeys } from '@/lib/query-keys';
 
@@ -50,6 +51,15 @@ const schema = z.object({
     .union([z.number(), z.undefined()])
     .refine((value): value is number => value !== undefined, 'Enter a price')
     .refine((value) => value >= 0, 'Price cannot be negative'),
+  // Percent as a human types it — 10, not 1000 — like the charges card. Optional
+  // and capped at 100: over that the line total would go negative.
+  discountPercent: z
+    .union([z.number(), z.undefined()])
+    .optional()
+    .refine(
+      (value) => value === undefined || (value >= 0 && value <= 100),
+      'Between 0 and 100 percent',
+    ),
 });
 
 type FormValues = z.input<typeof schema>;
@@ -73,6 +83,11 @@ interface TransactionItemDialogProps {
  * the way. Every one of those stays editable, because the line is a snapshot of
  * what was actually bought, not a live view of the catalogue: the shop's price
  * that day and the category you filed it under are properties of the receipt.
+ *
+ * The discount is a **rate**, and only the rate is sent: the API derives the money
+ * from it, so editing the quantity later re-applies it instead of leaving a figure
+ * that describes the price this line used to be. That is deliberately the opposite
+ * of an additional charge, where a typed amount wins over the arithmetic.
  */
 export const TransactionItemDialog = ({
   transaction,
@@ -95,6 +110,7 @@ export const TransactionItemDialog = ({
       name: '',
       quantity: 1,
       unitPrice: undefined,
+      discountPercent: undefined,
     },
   });
 
@@ -108,6 +124,8 @@ export const TransactionItemDialog = ({
       name: item?.name ?? '',
       quantity: item?.quantity ?? 1,
       unitPrice: item ? fromMinor(item.unitPriceMinor, transaction.currency) : undefined,
+      // A line with no discount reads as an empty field, not a typed "0".
+      discountPercent: item?.discountBasisPoints ? item.discountBasisPoints / 100 : undefined,
     });
   }, [open, item, transaction.currency, form]);
 
@@ -123,6 +141,8 @@ export const TransactionItemDialog = ({
         name: parsed.name,
         quantity: parsed.quantity,
         unitPriceMinor: toMinor(parsed.unitPrice, transaction.currency),
+        // The rate is all that is sent; the API derives the money from it.
+        discountBasisPoints: Math.round((parsed.discountPercent ?? 0) * 100),
       };
 
       return item
@@ -168,10 +188,19 @@ export const TransactionItemDialog = ({
   // `useWatch`, not `form.watch()` — the React Compiler lint rule rejects the latter.
   const quantity = useWatch({ control: form.control, name: 'quantity' });
   const unitPrice = useWatch({ control: form.control, name: 'unitPrice' });
-  const lineTotalMinor = toMinor(
+  const discountPercent = useWatch({ control: form.control, name: 'discountPercent' });
+
+  const grossMinor = toMinor(
     (Number.isFinite(quantity) ? quantity : 0) * (unitPrice ?? 0),
     transaction.currency,
   );
+  // The same helper the API derives with, so this preview is the figure that will
+  // be stored rather than one that usually agrees with it.
+  const discountMinor = applyBasisPoints(
+    grossMinor,
+    Math.round((Number.isFinite(discountPercent) ? (discountPercent ?? 0) : 0) * 100),
+  );
+  const lineTotalMinor = grossMinor - discountMinor;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -287,7 +316,7 @@ export const TransactionItemDialog = ({
             ) : null}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div className="grid gap-2">
               <Label htmlFor="quantity">Quantity</Label>
               <Input
@@ -324,13 +353,65 @@ export const TransactionItemDialog = ({
                 </p>
               ) : null}
             </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="discountPercent">Discount %</Label>
+              <Controller
+                control={form.control}
+                name="discountPercent"
+                render={({ field }) => (
+                  <Input
+                    id="discountPercent"
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="any"
+                    inputMode="decimal"
+                    placeholder="—"
+                    value={field.value ?? ''}
+                    onBlur={field.onBlur}
+                    onChange={(event) => {
+                      const percent = event.target.valueAsNumber;
+                      field.onChange(Number.isFinite(percent) ? percent : undefined);
+                    }}
+                    aria-invalid={Boolean(form.formState.errors.discountPercent)}
+                  />
+                )}
+              />
+              {form.formState.errors.discountPercent ? (
+                <p className="text-destructive text-xs">
+                  {form.formState.errors.discountPercent.message}
+                </p>
+              ) : null}
+            </div>
           </div>
 
-          <div className="bg-muted flex items-center justify-between rounded-xl px-4 py-3">
-            <span className="text-muted-foreground text-sm">Line total</span>
-            <span className="font-semibold tabular-nums">
-              {money(lineTotalMinor, transaction.currency)}
-            </span>
+          <div className="bg-muted grid gap-1.5 rounded-xl px-4 py-3 text-sm">
+            {/* Only worth three rows when there is something to subtract; an
+                undiscounted line just states its total. */}
+            {discountMinor > 0 ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Before discount</span>
+                  <span className="tabular-nums">{money(grossMinor, transaction.currency)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Discount</span>
+                  <span className="tabular-nums">
+                    −{money(discountMinor, transaction.currency)}
+                  </span>
+                </div>
+              </>
+            ) : null}
+            <div
+              className={cn(
+                'flex items-center justify-between font-semibold',
+                discountMinor > 0 && 'border-t pt-1.5',
+              )}
+            >
+              <span>Line total</span>
+              <span className="tabular-nums">{money(lineTotalMinor, transaction.currency)}</span>
+            </div>
           </div>
 
           <DialogFooter>

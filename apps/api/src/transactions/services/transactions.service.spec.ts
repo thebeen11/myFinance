@@ -10,6 +10,8 @@ const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const MERCHANT_ID = '22222222-2222-4222-8222-222222222222';
 const TRANSACTION_ID = '33333333-3333-4333-8333-333333333333';
 const CATEGORY_ID = '44444444-4444-4444-8444-444444444444';
+const CHARGE_ID = '66666666-6666-4666-8666-666666666666';
+const SETTLEMENT_ID = '77777777-7777-4777-8777-777777777777';
 
 const account = {
   id: ACCOUNT_ID,
@@ -32,6 +34,7 @@ const storedTransaction = {
   amountMinor: 25_000,
   currency: 'IDR',
   categoryId: null,
+  settlementId: null,
   occurredAt: new Date('2026-08-01T00:00:00.000Z'),
   description: null,
   notes: null,
@@ -41,6 +44,8 @@ const storedTransaction = {
   merchant: { id: MERCHANT_ID, name: 'Indomaret' },
   category: null,
   items: [],
+  charges: [],
+  settlements: [],
 };
 
 /** Income posts its own figure and carries no lines. */
@@ -82,7 +87,7 @@ const createIncomeDto = {
 describe('TransactionsService', () => {
   const prisma = {
     account: { findFirst: jest.fn() },
-    category: { findFirst: jest.fn() },
+    category: { findFirst: jest.fn(), findMany: jest.fn() },
     merchant: { findFirst: jest.fn() },
     transaction: {
       findFirst: jest.fn(),
@@ -90,10 +95,16 @@ describe('TransactionsService', () => {
       count: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      delete: jest.fn(),
+      groupBy: jest.fn(),
     },
-    transactionItem: { count: jest.fn() },
-    // findAll batches its rows-and-count pair through the array form.
-    $transaction: jest.fn((operations: Promise<unknown>[]) => Promise.all(operations)),
+    transactionItem: { count: jest.fn(), aggregate: jest.fn(), groupBy: jest.fn() },
+    transactionCharge: { count: jest.fn(), aggregate: jest.fn() },
+    transactionSettlement: { count: jest.fn() },
+    // Both forms are used: findAll batches its rows-and-count pair through the
+    // array form, while a patch carrying charges takes the interactive one — so
+    // this is left untyped and armed per test.
+    $transaction: jest.fn(),
   };
 
   let service: TransactionsService;
@@ -388,6 +399,167 @@ describe('TransactionsService', () => {
     });
   });
 
+  describe('additional charges', () => {
+    const serviceCharge = { name: 'Service charge', percentBasisPoints: 500, amountMinor: 3_300 };
+    const tax = { name: 'PB1', percentBasisPoints: 1_100, amountMinor: 7_623 };
+
+    /** The interactive form, used whenever a patch carries charges. */
+    const armInteractive = (): typeof tx => {
+      prisma.$transaction.mockImplementation(
+        <T>(callback: (client: typeof tx) => Promise<T>): Promise<T> => callback(tx),
+      );
+
+      return tx;
+    };
+
+    const tx = {
+      transaction: { update: jest.fn() },
+      transactionCharge: { deleteMany: jest.fn(), createMany: jest.fn(), aggregate: jest.fn() },
+      transactionItem: { aggregate: jest.fn() },
+    };
+
+    beforeEach(() => {
+      tx.transaction.update.mockReset();
+      tx.transactionCharge.deleteMany.mockReset();
+      tx.transactionCharge.createMany.mockReset();
+      tx.transactionCharge.aggregate.mockReset().mockResolvedValue({ _sum: { amountMinor: 0 } });
+      tx.transactionItem.aggregate.mockReset().mockResolvedValue({
+        _sum: { lineTotalMinor: 0 },
+      });
+    });
+
+    it('posts a new receipt at the sum of the charges it arrived with', async () => {
+      prisma.account.findFirst.mockResolvedValue(account);
+      prisma.transaction.create.mockResolvedValue(storedTransaction);
+
+      await service.create(USER_ID, { ...createDto, charges: [serviceCharge, tax] });
+
+      expect(prisma.transaction.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ amountMinor: 10_923 }) as object,
+        }),
+      );
+    });
+
+    it('numbers the charges by their position in the array', async () => {
+      prisma.account.findFirst.mockResolvedValue(account);
+      prisma.transaction.create.mockResolvedValue(storedTransaction);
+
+      await service.create(USER_ID, { ...createDto, charges: [serviceCharge, tax] });
+
+      const [[call]] = prisma.transaction.create.mock.calls as [
+        [{ data: { charges: { create: { name: string; position: number }[] } } }],
+      ];
+      expect(call.data.charges.create).toEqual([
+        expect.objectContaining({ name: 'Service charge', position: 0 }),
+        expect.objectContaining({ name: 'PB1', position: 1 }),
+      ]);
+    });
+
+    // Replace-all: the client sends the set it wants, not a diff against the set it has.
+    it('replaces every existing charge on an update', async () => {
+      prisma.transaction.findFirst.mockResolvedValue(storedTransaction);
+      const client = armInteractive();
+
+      await service.update(USER_ID, TRANSACTION_ID, { charges: [tax] });
+
+      expect(client.transactionCharge.deleteMany).toHaveBeenCalledWith({
+        where: { transactionId: TRANSACTION_ID },
+      });
+      expect(client.transactionCharge.createMany).toHaveBeenCalledWith({
+        data: [expect.objectContaining({ name: 'PB1', position: 0 })],
+      });
+    });
+
+    it('re-derives the total from the lines and the charges together', async () => {
+      prisma.transaction.findFirst.mockResolvedValue(storedTransaction);
+      const client = armInteractive();
+      client.transactionItem.aggregate.mockResolvedValue({ _sum: { lineTotalMinor: 66_000 } });
+      client.transactionCharge.aggregate.mockResolvedValue({ _sum: { amountMinor: 10_923 } });
+
+      await service.update(USER_ID, TRANSACTION_ID, { charges: [serviceCharge, tax] });
+
+      expect(client.transaction.update).toHaveBeenLastCalledWith({
+        where: { id: TRANSACTION_ID },
+        data: { amountMinor: 76_923 },
+      });
+    });
+
+    // Two aggregates over no rows sum to null, not 0 — an emptied receipt is zero.
+    it('reads an empty receipt as zero rather than NaN', async () => {
+      prisma.transaction.findFirst.mockResolvedValue(storedTransaction);
+      const client = armInteractive();
+      client.transactionItem.aggregate.mockResolvedValue({ _sum: { lineTotalMinor: null } });
+      client.transactionCharge.aggregate.mockResolvedValue({ _sum: { amountMinor: null } });
+
+      await service.update(USER_ID, TRANSACTION_ID, { charges: [] });
+
+      expect(client.transaction.update).toHaveBeenLastCalledWith({
+        where: { id: TRANSACTION_ID },
+        data: { amountMinor: 0 },
+      });
+    });
+
+    it('leaves the charges alone when the field is absent', async () => {
+      prisma.transaction.findFirst.mockResolvedValue(storedTransaction);
+      prisma.transaction.update.mockResolvedValue(storedTransaction);
+
+      await service.update(USER_ID, TRANSACTION_ID, { description: 'Lunch' });
+
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('refuses charges on income rather than silently dropping them', async () => {
+      prisma.account.findFirst.mockResolvedValue(account);
+      prisma.category.findFirst.mockResolvedValue(incomeCategory);
+
+      await expect(
+        service.create(USER_ID, { ...createIncomeDto, charges: [tax] }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.transaction.create).not.toHaveBeenCalled();
+    });
+
+    // Same hazard as line items: the figure stops being derived the moment the type
+    // flips, so charges left behind would sit under a total that ignores them.
+    it('refuses to make a receipt with charges into income', async () => {
+      prisma.transaction.findFirst.mockResolvedValue(storedTransaction);
+      prisma.transactionItem.count.mockResolvedValue(0);
+      prisma.transactionCharge.count.mockResolvedValue(2);
+
+      await expect(
+        service.update(USER_ID, TRANSACTION_ID, {
+          type: TransactionType.INCOME,
+          amountMinor: 8_000_000,
+          categoryId: CATEGORY_ID,
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.transaction.update).not.toHaveBeenCalled();
+    });
+
+    it('returns the charges on the response so the receipt renders in one request', async () => {
+      prisma.transaction.findFirst.mockResolvedValue({
+        ...storedTransaction,
+        charges: [
+          {
+            id: CHARGE_ID,
+            name: 'PB1',
+            percentBasisPoints: 1_100,
+            amountMinor: 7_623,
+            position: 0,
+            createdAt: new Date('2026-08-01T00:00:00.000Z'),
+            updatedAt: new Date('2026-08-01T00:00:00.000Z'),
+          },
+        ],
+      });
+
+      const result = await service.findOne(USER_ID, TRANSACTION_ID);
+
+      expect(result.charges).toEqual([
+        expect.objectContaining({ name: 'PB1', percentBasisPoints: 1_100, amountMinor: 7_623 }),
+      ]);
+    });
+  });
+
   // Direction is the only thing a line's category constrains. Where a category is
   // bound is a label, so moving a receipt between wallets strands nothing and must
   // not inspect the lines at all — this guards against the old check coming back.
@@ -442,5 +614,74 @@ describe('TransactionsService', () => {
     ];
     expect(call.where.AND).toBeDefined();
     expect(call.where.OR).toBeDefined();
+  });
+
+  /**
+   * Both legs of a settlement sit inside the same person's accounts, so counting
+   * them would add a repayment to income and the same figure to expense for money
+   * that never entered or left. Balances still see them — that is the whole point
+   * of posting them — which is why the exclusion lives here and not in `buildWhere`.
+   */
+  describe('reimbursement postings are money, but not spending', () => {
+    it('excludes them from the summary', async () => {
+      prisma.transaction.groupBy.mockResolvedValue([]);
+      prisma.transactionItem.groupBy.mockResolvedValue([]);
+      prisma.category.findMany.mockResolvedValue([]);
+
+      await service.summarise(USER_ID, {});
+
+      expect(prisma.transaction.groupBy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ settlementId: null }) as object,
+        }),
+      );
+    });
+
+    it('keeps them in the transaction list, where they are real movements', async () => {
+      prisma.transaction.findMany.mockResolvedValue([]);
+      prisma.transaction.count.mockResolvedValue(0);
+
+      await service.findAll(USER_ID, { limit: 25, offset: 0 });
+
+      const [[call]] = prisma.transaction.findMany.mock.calls as [[{ where: object }]];
+      expect(call.where).not.toHaveProperty('settlementId');
+    });
+  });
+
+  describe('a reimbursement posting is not editable', () => {
+    const posting = { ...storedTransaction, settlementId: SETTLEMENT_ID };
+
+    it('refuses an update, pointing at unsettling instead', async () => {
+      prisma.transaction.findFirst.mockResolvedValue(posting);
+
+      await expect(
+        service.update(USER_ID, TRANSACTION_ID, { description: 'nope' }),
+      ).rejects.toThrow(/Undo the reimbursement/);
+      expect(prisma.transaction.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses a delete, which would strand the other leg', async () => {
+      prisma.transaction.findFirst.mockResolvedValue(posting);
+
+      await expect(service.remove(USER_ID, TRANSACTION_ID)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(prisma.transaction.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  it('refuses to turn a reimbursed receipt into income, which would strand its postings', async () => {
+    prisma.transaction.findFirst.mockResolvedValue(storedTransaction);
+    prisma.transactionItem.count.mockResolvedValue(0);
+    prisma.transactionCharge.count.mockResolvedValue(0);
+    prisma.transactionSettlement.count.mockResolvedValue(1);
+
+    await expect(
+      service.update(USER_ID, TRANSACTION_ID, {
+        type: TransactionType.INCOME,
+        amountMinor: 1_000,
+        categoryId: CATEGORY_ID,
+      }),
+    ).rejects.toThrow(/split shares have been reimbursed/);
   });
 });

@@ -20,6 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -280,7 +281,11 @@ export default function TransactionsPage() {
                     {transaction.account.name}
                   </TableCell>
                   <TableCell>
-                    {transaction.items.length === 0 ? (
+                    {/* Posted by a reimbursement, not entered. Labelled so it does not
+                        read as a stray row whose edit and delete buttons simply fail. */}
+                    {transaction.isSettlement ? (
+                      <Badge variant="secondary">Reimbursement</Badge>
+                    ) : transaction.items.length === 0 ? (
                       <span className="text-muted-foreground">Not itemised</span>
                     ) : (
                       <span className="flex items-center gap-2">
@@ -311,25 +316,31 @@ export default function TransactionsPage() {
                     {money(transaction.amountMinor, transaction.currency)}
                   </TableCell>
                   <TableCell className="pr-5 text-right whitespace-nowrap">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`Edit ${transaction.description ?? 'transaction'}`}
-                      onClick={() => {
-                        setEditing(transaction);
-                        setDialogOpen(true);
-                      }}
-                    >
-                      <Pencil />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`Delete ${transaction.description ?? 'transaction'}`}
-                      onClick={() => setPendingDelete(transaction)}
-                    >
-                      <Trash2 />
-                    </Button>
+                    {/* The API refuses both on a reimbursement posting — it is undone from
+                        the receipt it reimbursed, so the buttons are not offered here. */}
+                    {transaction.isSettlement ? null : (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Edit ${transaction.description ?? 'transaction'}`}
+                          onClick={() => {
+                            setEditing(transaction);
+                            setDialogOpen(true);
+                          }}
+                        >
+                          <Pencil />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Delete ${transaction.description ?? 'transaction'}`}
+                          onClick={() => setPendingDelete(transaction)}
+                        >
+                          <Trash2 />
+                        </Button>
+                      </>
+                    )}
                   </TableCell>
                 </TableRow>
               ))
