@@ -23,7 +23,11 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     super({
       adapter: new PrismaPg({
         connectionString,
-        max: 10,
+        // One long-lived server can hold a real pool. On a serverless runtime
+        // every warm instance holds its own, and they multiply by concurrency —
+        // ten of those exhausts Supabase's connection limit, so keep it at one
+        // and let the platform pooler do the multiplexing.
+        max: Number(process.env.DATABASE_POOL_MAX ?? (process.env.VERCEL ? 1 : 10)),
         idleTimeoutMillis: 30_000,
         connectionTimeoutMillis: 5_000,
       }),

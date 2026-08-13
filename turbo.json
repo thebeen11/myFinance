@@ -5,6 +5,8 @@
     "NODE_ENV",
     "DATABASE_URL",
     "DIRECT_URL",
+    "DATABASE_POOL_MAX",
+    "VERCEL",
     "PORT",
     "CORS_ORIGINS",
     "JWT_ACCESS_SECRET",
