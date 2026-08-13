@@ -41,6 +41,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
+  ACCOUNT_PICKER_QUERY,
   useAccounts,
   useCategories,
   useMerchants,
@@ -65,7 +66,7 @@ export default function TransactionsPage() {
   const [pendingDelete, setPendingDelete] = useState<TransactionResponse | undefined>(undefined);
 
   const queryClient = useQueryClient();
-  const accounts = useAccounts();
+  const accounts = useAccounts(ACCOUNT_PICKER_QUERY);
   const categories = useCategories();
   const merchants = useMerchants();
   const transactions = useTransactions(filters);
@@ -143,7 +144,7 @@ export default function TransactionsPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ALL}>All accounts</SelectItem>
-            {(accounts.data ?? []).map((account) => (
+            {(accounts.data?.data ?? []).map((account) => (
               <SelectItem key={account.id} value={account.id}>
                 {account.name}
               </SelectItem>
@@ -385,7 +386,7 @@ export default function TransactionsPage() {
       </div>
 
       <TransactionDialog
-        accounts={accounts.data ?? []}
+        accounts={accounts.data?.data ?? []}
         merchants={merchants.data ?? []}
         transaction={editing}
         open={dialogOpen}

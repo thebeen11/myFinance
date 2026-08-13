@@ -43,6 +43,7 @@ export {
 } from './sdk.gen';
 export {
   type AccountBalanceResponse,
+  type AccountCurrencyTotalResponse,
   type AccountResponse,
   type AccountsCreateData,
   type AccountsCreateResponse,
@@ -128,6 +129,7 @@ export {
   type MerchantsUpdateData,
   type MerchantsUpdateResponse,
   type MerchantsUpdateResponses,
+  type PaginatedAccountsResponse,
   type PaginatedTransactionsResponse,
   type ProductResponse,
   type ProductsCreateData,

@@ -71,6 +71,18 @@ export const AccountType = {
 
 export type AccountType = (typeof AccountType)[keyof typeof AccountType];
 
+export type AccountBalanceResponse = {
+  accountId: string;
+  currency: string;
+  openingBalanceMinor: number;
+  incomeMinor: number;
+  expenseMinor: number;
+  /**
+   * openingBalanceMinor + incomeMinor - expenseMinor
+   */
+  balanceMinor: number;
+};
+
 export type AccountResponse = {
   id: string;
   name: string;
@@ -80,6 +92,11 @@ export type AccountResponse = {
    */
   currency: string;
   openingBalanceMinor: number;
+  /**
+   * Carried on every account so a list renders its balances without a request
+   * per row. Identical to what `GET /accounts/:id/balance` returns.
+   */
+  balance: AccountBalanceResponse;
   /**
    * Categories paid from this account. Deleting it leaves them unassigned.
    */
@@ -93,16 +110,43 @@ export type AccountResponse = {
   updatedAt: string;
 };
 
-export type AccountBalanceResponse = {
-  accountId: string;
-  currency: string;
-  openingBalanceMinor: number;
-  incomeMinor: number;
-  expenseMinor: number;
+export type AccountCurrencyTotalResponse = {
   /**
-   * openingBalanceMinor + incomeMinor - expenseMinor
+   * ISO 4217 code.
    */
-  balanceMinor: number;
+  currency: string;
+  /**
+   * Integer minor units of `currency`.
+   */
+  totalMinor: number;
+  /**
+   * Accounts denominated in this currency.
+   */
+  accountCount: number;
+};
+
+export type PaginatedAccountsResponse = {
+  /**
+   * Total rows matching the filter, ignoring limit/offset.
+   */
+  total: number;
+  limit: number;
+  offset: number;
+  data: Array<AccountResponse>;
+  /**
+   * Rolled up over the whole filtered set, not the page.
+   *
+   * Net worth has to stay correct while the list is paged, so the client can
+   * never derive it by folding `data` — past the first page that would silently
+   * under-count. Ordered by `totalMinor`, largest first.
+   */
+  totalsByCurrency: Array<AccountCurrencyTotalResponse>;
+  /**
+   * Archived accounts matching `search`, counted whether or not
+   * `includeArchived` is set — it is what labels the "show archived" toggle,
+   * which has to know the count *before* it is switched on.
+   */
+  archivedTotal: number;
 };
 
 export type CreateAccountDto = {
@@ -716,13 +760,19 @@ export type AccountsFindAllData = {
   body?: never;
   path?: never;
   query?: {
+    limit?: number;
+    offset?: number;
+    /**
+     * Free-text filter, matched case-insensitively.
+     */
+    search?: string;
     includeArchived?: boolean;
   };
   url: '/accounts';
 };
 
 export type AccountsFindAllResponses = {
-  200: Array<AccountResponse>;
+  200: PaginatedAccountsResponse;
 };
 
 export type AccountsFindAllResponse = AccountsFindAllResponses[keyof AccountsFindAllResponses];

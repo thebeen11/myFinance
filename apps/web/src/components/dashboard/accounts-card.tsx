@@ -2,32 +2,32 @@
 
 import Link from 'next/link';
 
-import type { AccountResponse } from '@/api';
+import type { AccountCurrencyTotalResponse, AccountResponse } from '@/api';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { AccountBalances } from '@/hooks/use-finance-queries';
 import { accountIcon, accountTypeLabel } from '@/lib/account-meta';
 import { money } from '@/lib/format';
 
 /**
  * Balances per account, each with a bar showing its share of the total.
  *
- * The share bar is computed within a currency, never across them, so a mixed
- * roster still produces meaningful proportions.
+ * Every row carries its own balance, so this costs no request of its own. The
+ * share bar is computed within a currency, never across them, so a mixed roster
+ * still produces meaningful proportions.
  */
 export const AccountsCard = ({
   accounts,
-  balances,
+  totals,
   isPending,
   className,
 }: {
   accounts: readonly AccountResponse[];
-  balances: AccountBalances;
+  totals: readonly AccountCurrencyTotalResponse[];
   isPending: boolean;
   className?: string;
 }) => {
   const totalByCurrency = new Map(
-    balances.byCurrency.map((entry) => [entry.currency, Math.abs(entry.totalMinor)]),
+    totals.map((entry) => [entry.currency, Math.abs(entry.totalMinor)]),
   );
 
   return (
@@ -55,12 +55,11 @@ export const AccountsCard = ({
         ) : (
           <ul className="flex flex-col gap-1">
             {accounts.map((account) => {
-              const balance = balances.byAccountId[account.id];
               const Icon = accountIcon(account.type);
               const total = totalByCurrency.get(account.currency) ?? 0;
               const share =
-                balance && total > 0
-                  ? Math.min(100, (Math.abs(balance.balanceMinor) / total) * 100)
+                total > 0
+                  ? Math.min(100, (Math.abs(account.balance.balanceMinor) / total) * 100)
                   : 0;
 
               return (
@@ -86,7 +85,7 @@ export const AccountsCard = ({
                   </div>
 
                   <span className="shrink-0 text-sm font-semibold tabular-nums">
-                    {balance ? money(balance.balanceMinor, account.currency) : '—'}
+                    {money(account.balance.balanceMinor, account.currency)}
                   </span>
                 </li>
               );

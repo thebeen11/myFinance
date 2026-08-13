@@ -27,7 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useAccounts } from '@/hooks/use-finance-queries';
+import { ACCOUNT_PICKER_QUERY, useAccounts } from '@/hooks/use-finance-queries';
 import { UNASSIGNED_ACCOUNT } from '@/lib/account-meta';
 import { invalidateCategoryDependents } from '@/lib/query-invalidation';
 import { cn } from '@/lib/utils';
@@ -76,7 +76,7 @@ export const CategoryDialog = ({
   const queryClient = useQueryClient();
   // Archived accounts are excluded: filing new spending against a wallet that has
   // been put away is not something to offer.
-  const accounts = useAccounts();
+  const accounts = useAccounts(ACCOUNT_PICKER_QUERY);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -155,7 +155,7 @@ export const CategoryDialog = ({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={UNASSIGNED_ACCOUNT}>No account</SelectItem>
-                    {(accounts.data ?? []).map((account) => (
+                    {(accounts.data?.data ?? []).map((account) => (
                       <SelectItem key={account.id} value={account.id}>
                         {account.name}
                       </SelectItem>

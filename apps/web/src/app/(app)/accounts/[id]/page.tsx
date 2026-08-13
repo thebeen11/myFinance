@@ -35,7 +35,6 @@ import {
 } from '@/components/ui/table';
 import {
   useAccount,
-  useAccountBalance,
   useMerchants,
   useTransactions,
 } from '@/hooks/use-finance-queries';
@@ -67,8 +66,10 @@ export default function AccountDetailPage() {
   const [pendingDelete, setPendingDelete] = useState<TransactionResponse | undefined>(undefined);
 
   const queryClient = useQueryClient();
+  // One request, not two: `AccountResponse` carries its own balance now, so the
+  // account and its money arrive together.
   const account = useAccount(accountId);
-  const balance = useAccountBalance(accountId);
+  const balance = account.data?.balance;
   const merchants = useMerchants();
   // No hook of its own: `useTransactions` forwards the whole query object, and the
   // API already indexes ([accountId, occurredAt]) for exactly this read.
@@ -133,10 +134,10 @@ export default function AccountDetailPage() {
               : 'Balance'
           }
           value={
-            balance.isPending ? (
+            account.isPending ? (
               <Skeleton className="h-9 w-40" />
-            ) : balance.data ? (
-              money(balance.data.balanceMinor, balance.data.currency)
+            ) : balance ? (
+              money(balance.balanceMinor, balance.currency)
             ) : (
               '—'
             )
@@ -145,12 +146,12 @@ export default function AccountDetailPage() {
         <StatTile
           tone="inverted"
           label="Income, all time"
-          value={balance.data ? `+${money(balance.data.incomeMinor, balance.data.currency)}` : '—'}
+          value={balance ? `+${money(balance.incomeMinor, balance.currency)}` : '—'}
         />
         <StatTile
           tone="inverted"
           label="Expense, all time"
-          value={balance.data ? `−${money(balance.data.expenseMinor, balance.data.currency)}` : '—'}
+          value={balance ? `−${money(balance.expenseMinor, balance.currency)}` : '—'}
         />
       </Card>
 

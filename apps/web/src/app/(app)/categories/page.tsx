@@ -39,7 +39,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { useAccounts, useCategories } from '@/hooks/use-finance-queries';
+import { ACCOUNT_PICKER_QUERY, useAccounts, useCategories } from '@/hooks/use-finance-queries';
 import { UNASSIGNED_ACCOUNT } from '@/lib/account-meta';
 import { invalidateCategoryDependents } from '@/lib/query-invalidation';
 import { cn } from '@/lib/utils';
@@ -86,7 +86,7 @@ export default function CategoriesPage() {
 
   const queryClient = useQueryClient();
   const categories = useCategories();
-  const accounts = useAccounts();
+  const accounts = useAccounts(ACCOUNT_PICKER_QUERY);
 
   // Filtered in the browser, not on the server: the list endpoint is unpaginated,
   // so the whole set is already in cache and a round-trip per keystroke — or per
@@ -180,7 +180,7 @@ export default function CategoriesPage() {
           <SelectContent>
             <SelectItem value={ALL_ACCOUNTS}>All accounts</SelectItem>
             <SelectItem value={UNASSIGNED_ACCOUNT}>Unassigned</SelectItem>
-            {(accounts.data ?? []).map((account) => (
+            {(accounts.data?.data ?? []).map((account) => (
               <SelectItem key={account.id} value={account.id}>
                 {account.name}
               </SelectItem>
@@ -246,7 +246,7 @@ export default function CategoriesPage() {
                     </span>
                   </TableCell>
                   <TableCell className="py-1">
-                    <CategoryAccountSelect category={category} accounts={accounts.data ?? []} />
+                    <CategoryAccountSelect category={category} accounts={accounts.data?.data ?? []} />
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {category.kind === 'INCOME' ? 'Income' : 'Expense'}

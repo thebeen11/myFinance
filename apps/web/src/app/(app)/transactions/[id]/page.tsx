@@ -39,6 +39,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
+  ACCOUNT_PICKER_QUERY,
   useAccounts,
   useCategories,
   useMerchants,
@@ -71,7 +72,7 @@ export default function TransactionDetailPage() {
 
   const queryClient = useQueryClient();
   const transaction = useTransaction(transactionId);
-  const accounts = useAccounts();
+  const accounts = useAccounts(ACCOUNT_PICKER_QUERY);
   const categories = useCategories();
   const merchants = useMerchants();
 
@@ -389,7 +390,7 @@ export default function TransactionDetailPage() {
       {receipt ? (
         <>
           <TransactionDialog
-            accounts={accounts.data ?? []}
+            accounts={accounts.data?.data ?? []}
             merchants={merchants.data ?? []}
             transaction={receipt}
             lockedType={receipt.type}

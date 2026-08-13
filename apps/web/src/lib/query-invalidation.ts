@@ -17,7 +17,8 @@ import { queryKeys } from './query-keys';
 export const invalidateCategoryDependents = async (queryClient: QueryClient): Promise<void> => {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: queryKeys.categories() }),
-    queryClient.invalidateQueries({ queryKey: queryKeys.accounts() }),
+    // The bare prefix, so every paged window of the account list is refreshed.
+    queryClient.invalidateQueries({ queryKey: ['accounts'] }),
     queryClient.invalidateQueries({ queryKey: ['transactions'] }),
     queryClient.invalidateQueries({ queryKey: queryKeys.merchants() }),
   ]);

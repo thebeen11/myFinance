@@ -8,7 +8,6 @@ import { DEFAULT_CURRENCY } from '@myfinance/shared';
 import {
   accountsFindAll,
   accountsFindOne,
-  accountsGetBalance,
   authMe,
   categoriesFindAll,
   merchantsFindAll,
@@ -19,8 +18,7 @@ import {
   transactionsSummarise,
 } from '@/api';
 import type {
-  AccountBalanceResponse,
-  AccountResponse,
+  AccountsFindAllData,
   TransactionResponse,
   TransactionsFindAllData,
   TransactionsSummaryResponse,
@@ -40,25 +38,28 @@ export const useMe = () =>
     staleTime: Infinity,
   });
 
-/** Non-archived accounts — the API already excludes archived rows by default. */
-export const useAccounts = () =>
-  useQuery({
-    queryKey: queryKeys.accounts(),
-    queryFn: async () => (await accountsFindAll({ throwOnError: true })).data,
-  });
+export type AccountListQuery = NonNullable<AccountsFindAllData['query']>;
+
+/** The window the dashboard reads. Shared so `useDisplayCurrency` hits the same cache entry. */
+export const DEFAULT_ACCOUNTS_QUERY: AccountListQuery = { limit: 25, offset: 0 };
 
 /**
- * Every account, archived ones included.
- *
- * Separate from `useAccounts` because archived accounts must not reach the pickers
- * that post new money — only the accounts page, which shows them so they can be
- * restored, and filters them in the browser like every other list here.
+ * The window a `<Select>` of accounts reads: the server's `@Max(100)` cap, since
+ * a picker cannot page and an account missing from it cannot be posted to.
  */
-export const useAllAccounts = () =>
+export const ACCOUNT_PICKER_QUERY: AccountListQuery = { limit: 100, offset: 0 };
+
+/**
+ * One page of accounts, each already carrying its balance.
+ *
+ * Archived rows are excluded unless asked for, and `totalsByCurrency` on the
+ * envelope covers the whole set rather than the page — net worth is read from
+ * there, never folded out of `data`, or it would under-count past page one.
+ */
+export const useAccounts = (query: AccountListQuery = DEFAULT_ACCOUNTS_QUERY) =>
   useQuery({
-    queryKey: queryKeys.accountsIncludingArchived(),
-    queryFn: async () =>
-      (await accountsFindAll({ query: { includeArchived: true }, throwOnError: true })).data,
+    queryKey: queryKeys.accounts(query),
+    queryFn: async () => (await accountsFindAll({ query, throwOnError: true })).data,
   });
 
 /**
@@ -72,14 +73,6 @@ export const useAccount = (id: string) =>
   useQuery({
     queryKey: queryKeys.account(id),
     queryFn: async () => (await accountsFindOne({ path: { id }, throwOnError: true })).data,
-    enabled: id !== '',
-  });
-
-/** One account's balance. `useAccountBalances` is the same call, fanned out over a list. */
-export const useAccountBalance = (id: string) =>
-  useQuery({
-    queryKey: queryKeys.accountBalance(id),
-    queryFn: async () => (await accountsGetBalance({ path: { id }, throwOnError: true })).data,
     enabled: id !== '',
   });
 
@@ -213,57 +206,6 @@ export const useMonthlySummaries = (monthCount: number): MonthlySummaries => {
   });
 };
 
-export interface CurrencyTotal {
-  readonly currency: string;
-  readonly totalMinor: number;
-}
-
-export interface AccountBalances {
-  readonly byAccountId: Readonly<Record<string, AccountBalanceResponse | undefined>>;
-  /** One entry per distinct currency, largest first. Balances are never summed across currencies. */
-  readonly byCurrency: CurrencyTotal[];
-  readonly isPending: boolean;
-  readonly isError: boolean;
-}
-
-/**
- * One balance query per account, so each caches and refetches independently.
- *
- * `combine` is what makes the result referentially stable — a bare `useQueries`
- * returns a fresh array every render, which silently defeats any downstream
- * `useMemo` keyed on it.
- */
-export const useAccountBalances = (accounts: readonly AccountResponse[]): AccountBalances =>
-  useQueries({
-    queries: accounts.map((account) => ({
-      queryKey: queryKeys.accountBalance(account.id),
-      queryFn: async () =>
-        (await accountsGetBalance({ path: { id: account.id }, throwOnError: true })).data,
-    })),
-    combine: (results) => {
-      const byAccountId: Record<string, AccountBalanceResponse | undefined> = {};
-      const totals = new Map<string, number>();
-
-      results.forEach((result, index) => {
-        const account = accounts[index];
-        if (!account) return;
-        byAccountId[account.id] = result.data;
-        if (!result.data) return;
-        const { currency, balanceMinor } = result.data;
-        totals.set(currency, (totals.get(currency) ?? 0) + balanceMinor);
-      });
-
-      return {
-        byAccountId,
-        byCurrency: [...totals]
-          .map(([currency, totalMinor]) => ({ currency, totalMinor }))
-          .sort((a, b) => b.totalMinor - a.totalMinor),
-        isPending: results.some((result) => result.isPending),
-        isError: results.some((result) => result.isError),
-      };
-    },
-  });
-
 export interface DisplayCurrency {
   /** The currency most accounts are denominated in. */
   readonly currency: string;
@@ -283,21 +225,19 @@ export interface DisplayCurrency {
  */
 export const useDisplayCurrency = (): DisplayCurrency => {
   const accounts = useAccounts();
+  const totals = accounts.data?.totalsByCurrency;
 
   return useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const account of accounts.data ?? []) {
-      counts.set(account.currency, (counts.get(account.currency) ?? 0) + 1);
-    }
-
-    const ranked = [...counts].sort((a, b) => b[1] - a[1]);
+    // Ranked over every account, not just the page: `totalsByCurrency` is rolled
+    // up server-side, so paging the list cannot change which currency wins.
+    const ranked = [...(totals ?? [])].sort((a, b) => b.accountCount - a.accountCount);
 
     return {
-      currency: ranked[0]?.[0] ?? DEFAULT_CURRENCY,
+      currency: ranked[0]?.currency ?? DEFAULT_CURRENCY,
       isMixed: ranked.length > 1,
-      others: ranked.slice(1).map(([code]) => code),
+      others: ranked.slice(1).map((entry) => entry.currency),
     };
-  }, [accounts.data]);
+  }, [totals]);
 };
 
 /** Server cap: `limit` is validated `@Max(100)`. */
