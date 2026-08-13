@@ -188,7 +188,7 @@ export const healthCheck = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * List accounts.
+ * List accounts, each carrying its balance, with totals per currency.
  */
 export const accountsFindAll = <ThrowOnError extends boolean = false>(
   options?: Options<AccountsFindAllData, ThrowOnError>,

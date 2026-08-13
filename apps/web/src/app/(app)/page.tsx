@@ -16,7 +16,6 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import {
   bucketByUtcDay,
-  useAccountBalances,
   useAccounts,
   useDisplayCurrency,
   useMe,
@@ -46,7 +45,6 @@ export default function DashboardPage() {
   const accounts = useAccounts();
   const merchants = useMerchants();
   const display = useDisplayCurrency();
-  const balances = useAccountBalances(accounts.data ?? []);
   const monthly = useMonthlySummaries(TREND_MONTHS);
   const expenses = useMonthExpenses(month);
   const recent = useTransactions({ limit: RECENT_LIMIT, offset: 0 });
@@ -100,8 +98,9 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-12">
           <NetWorthCard
-            balances={balances}
-            accountCount={accounts.data?.length ?? 0}
+            totals={accounts.data?.totalsByCurrency ?? []}
+            accountCount={accounts.data?.total ?? 0}
+            isPending={accounts.isPending}
             className="min-w-0 lg:col-span-5"
           />
           <MonthFlowCard
@@ -123,8 +122,8 @@ export default function DashboardPage() {
             className="min-w-0 lg:col-span-5"
           />
           <AccountsCard
-            accounts={accounts.data ?? []}
-            balances={balances}
+            accounts={accounts.data?.data ?? []}
+            totals={accounts.data?.totalsByCurrency ?? []}
             isPending={accounts.isPending}
             className="min-w-0 lg:col-span-7"
           />
@@ -152,7 +151,7 @@ export default function DashboardPage() {
       </div>
 
       <TransactionDialog
-        accounts={accounts.data ?? []}
+        accounts={accounts.data?.data ?? []}
         merchants={merchants.data ?? []}
         open={dialogOpen}
         onOpenChange={setDialogOpen}

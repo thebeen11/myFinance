@@ -6,18 +6,19 @@ import {
   HttpCode,
   HttpStatus,
   Param,
-  ParseBoolPipe,
   ParseUUIDPipe,
   Patch,
   Post,
   Query,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { AccountBalanceResponse } from '../models/account-balance.response';
 import { AccountResponse } from '../models/account.response';
 import { CreateAccountDto } from '../models/create-account.dto';
+import { ListAccountsQueryDto } from '../models/list-accounts-query.dto';
+import { PaginatedAccountsResponse } from '../models/paginated-accounts.response';
 import { UpdateAccountDto } from '../models/update-account.dto';
 import { AccountsService } from '../services/accounts.service';
 
@@ -28,14 +29,14 @@ export class AccountsController {
   constructor(private readonly accountsService: AccountsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List accounts.' })
-  @ApiQuery({ name: 'includeArchived', required: false, type: Boolean })
+  @ApiOperation({
+    summary: 'List accounts, each carrying its balance, with totals per currency.',
+  })
   findAll(
     @CurrentUser() userId: string,
-    @Query('includeArchived', new ParseBoolPipe({ optional: true }))
-    includeArchived?: boolean,
-  ): Promise<AccountResponse[]> {
-    return this.accountsService.findAll(userId, includeArchived ?? false);
+    @Query() query: ListAccountsQueryDto,
+  ): Promise<PaginatedAccountsResponse> {
+    return this.accountsService.findAll(userId, query);
   }
 
   @Get(':id')

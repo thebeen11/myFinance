@@ -1,8 +1,8 @@
 'use client';
 
+import type { AccountCurrencyTotalResponse } from '@/api';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { AccountBalances } from '@/hooks/use-finance-queries';
 import { money } from '@/lib/format';
 
 /**
@@ -13,17 +13,23 @@ import { money } from '@/lib/format';
  * currency (the ordinary case) that is a single headline; with several it is one
  * headline per currency stacked, because there is no exchange rate anywhere in
  * the system that could reduce them to one number.
+ *
+ * `totals` comes off the account list's envelope, rolled up server-side over
+ * every account. It is deliberately not folded out of the rows on screen: the
+ * list is paged, so that would quietly report page one as the whole net worth.
  */
 export const NetWorthCard = ({
-  balances,
+  totals,
   accountCount,
+  isPending,
   className,
 }: {
-  balances: AccountBalances;
+  totals: readonly AccountCurrencyTotalResponse[];
   accountCount: number;
+  isPending: boolean;
   className?: string;
 }) => {
-  const [primary, ...others] = balances.byCurrency;
+  const [primary, ...others] = totals;
 
   return (
     <Card tone="inverted" className={className}>
@@ -31,7 +37,7 @@ export const NetWorthCard = ({
         <div className="flex flex-col gap-1">
           <span className="text-inverted-muted text-xs font-medium">Total balance</span>
 
-          {balances.isPending && !primary ? (
+          {isPending && !primary ? (
             <Skeleton className="mt-1 h-10 w-48 bg-white/10" />
           ) : primary ? (
             <>

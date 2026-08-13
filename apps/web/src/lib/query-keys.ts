@@ -1,5 +1,6 @@
-import type { TransactionsFindAllData } from '@/api';
+import type { AccountsFindAllData, TransactionsFindAllData } from '@/api';
 
+type AccountListQuery = AccountsFindAllData['query'];
 type TransactionListQuery = TransactionsFindAllData['query'];
 
 /** A resolved summary window. Half-open: `from` inclusive, `to` exclusive. */
@@ -18,19 +19,14 @@ export interface SummaryWindowKey {
  */
 export const queryKeys = {
   me: () => ['me'] as const,
-  accounts: () => ['accounts'] as const,
   /**
-   * Archived accounts included. Deliberately *inside* the `'accounts'` prefix, so
-   * the broad invalidation every account mutation already does reaches it too.
+   * One page of accounts. `'accounts'` stays the first element so the broad
+   * invalidation every account mutation does still reaches every window,
+   * archived-inclusive ones included — the flag is part of `query` now.
    */
-  accountsIncludingArchived: () => ['accounts', 'all'] as const,
-  /**
-   * One account. A prefix of `accountBalance`, deliberately: invalidating the
-   * account refreshes the balance rendered beside it, which is the pair an
-   * account's own page reads together.
-   */
+  accounts: (query: AccountListQuery) => ['accounts', query] as const,
+  /** One account, balance included — the account's own page reads nothing else. */
   account: (id: string) => ['accounts', id] as const,
-  accountBalance: (id: string) => ['accounts', id, 'balance'] as const,
   categories: () => ['categories'] as const,
   /**
    * Outside the `'transactions'` prefix — merchants are master data, not derived

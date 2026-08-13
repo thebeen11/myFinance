@@ -3,7 +3,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArchiveRestore, Archive, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { accountsRemove, accountsUpdate } from '@/api';
@@ -32,10 +32,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { useAccountBalances, useAllAccounts } from '@/hooks/use-finance-queries';
+import { useAccounts, type AccountListQuery } from '@/hooks/use-finance-queries';
 import { accountIcon, accountTypeLabel } from '@/lib/account-meta';
 import { money } from '@/lib/format';
 import { cn } from '@/lib/utils';
+
+const PAGE_SIZE = 25;
+const SEARCH_DEBOUNCE_MS = 300;
 
 /**
  * Says what a delete destroys, so the confirm is a fact rather than a warning.
@@ -68,29 +71,36 @@ const describeUsage = (account: AccountResponse): string => {
 };
 
 export default function AccountsPage() {
-  const [search, setSearch] = useState('');
-  const [showArchived, setShowArchived] = useState(false);
+  const [query, setQuery] = useState<AccountListQuery>({ limit: PAGE_SIZE, offset: 0 });
+  const [searchInput, setSearchInput] = useState('');
   const [editing, setEditing] = useState<AccountResponse | undefined>(undefined);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<AccountResponse | undefined>(undefined);
 
   const queryClient = useQueryClient();
-  // Archived rows are fetched either way and hidden in the browser: the list is
-  // unpaginated, so the toggle costs nothing and a round-trip would buy nothing.
-  const accounts = useAllAccounts();
-  const balances = useAccountBalances(accounts.data ?? []);
+  const accounts = useAccounts(query);
 
-  const rows = useMemo(() => {
-    const term = search.trim().toLowerCase();
+  // Any change to what is being filtered puts you back on page one — staying on
+  // page four of a result set that just shrank shows an empty table.
+  const patchQuery = (patch: Partial<AccountListQuery>) =>
+    setQuery((current) => ({ ...current, offset: 0, ...patch }));
 
-    return (accounts.data ?? [])
-      .filter((account) => showArchived || account.archivedAt === null)
-      .filter((account) => !term || account.name.toLowerCase().includes(term));
-  }, [accounts.data, search, showArchived]);
+  // Debounced, because the filter is a request now rather than a browser-side pass.
+  useEffect(() => {
+    const timer = setTimeout(
+      () => patchQuery({ search: searchInput || undefined }),
+      SEARCH_DEBOUNCE_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
-  const archivedCount = (accounts.data ?? []).filter(
-    (account) => account.archivedAt !== null,
-  ).length;
+  const rows = accounts.data?.data ?? [];
+  const total = accounts.data?.total ?? 0;
+  const offset = query.offset ?? 0;
+  const showArchived = query.includeArchived ?? false;
+  // Counted server-side over the whole match, so the toggle knows how many rows
+  // it would reveal while they are still hidden.
+  const archivedCount = accounts.data?.archivedTotal ?? 0;
 
   const archival = useMutation({
     mutationFn: ({ id, archived }: { id: string; archived: boolean }) =>
@@ -143,8 +153,8 @@ export default function AccountsPage() {
             placeholder="Search accounts"
             className="pl-10"
             aria-label="Search accounts"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            value={searchInput}
+            onChange={(event) => setSearchInput(event.target.value)}
           />
         </div>
 
@@ -152,7 +162,7 @@ export default function AccountsPage() {
           <button
             type="button"
             aria-pressed={showArchived}
-            onClick={() => setShowArchived((previous) => !previous)}
+            onClick={() => patchQuery({ includeArchived: !showArchived })}
             className={cn(
               'focus-visible:ring-ring/50 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors outline-none focus-visible:ring-3',
               showArchived
@@ -199,10 +209,10 @@ export default function AccountsPage() {
               <TableRow className="hover:bg-transparent">
                 <TableCell colSpan={6} className="py-14 text-center">
                   <p className="text-sm font-medium">
-                    {search ? 'Nothing here' : 'No accounts yet'}
+                    {searchInput ? 'Nothing here' : 'No accounts yet'}
                   </p>
                   <p className="text-muted-foreground mt-1 text-sm">
-                    {search
+                    {searchInput
                       ? 'No account matches that name.'
                       : 'Add every place your money lives — cash, bank, e-wallets, cards.'}
                   </p>
@@ -211,7 +221,6 @@ export default function AccountsPage() {
             ) : (
               rows.map((account) => {
                 const Icon = accountIcon(account.type);
-                const balance = balances.byAccountId[account.id];
                 const isArchived = account.archivedAt !== null;
 
                 return (
@@ -239,11 +248,7 @@ export default function AccountsPage() {
                       {accountTypeLabel(account.type)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {balance ? (
-                        money(balance.balanceMinor, account.currency)
-                      ) : (
-                        <Skeleton className="ml-auto h-4 w-20" />
-                      )}
+                      {money(account.balance.balanceMinor, account.currency)}
                     </TableCell>
                     <TableCell className="text-muted-foreground text-right tabular-nums">
                       {account.categoryCount}
@@ -288,6 +293,41 @@ export default function AccountsPage() {
           </TableBody>
         </Table>
       </Card>
+
+      <div className="flex items-center justify-between gap-3 text-sm">
+        <span className="text-muted-foreground tabular-nums">
+          {total === 0
+            ? 'No results'
+            : `${offset + 1}–${Math.min(offset + PAGE_SIZE, total)} of ${total}`}
+        </span>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="bg-card"
+            disabled={offset === 0}
+            onClick={() =>
+              setQuery((current) => ({
+                ...current,
+                offset: Math.max(0, (current.offset ?? 0) - PAGE_SIZE),
+              }))
+            }
+          >
+            Previous
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="bg-card"
+            disabled={offset + PAGE_SIZE >= total}
+            onClick={() =>
+              setQuery((current) => ({ ...current, offset: (current.offset ?? 0) + PAGE_SIZE }))
+            }
+          >
+            Next
+          </Button>
+        </div>
+      </div>
 
       <AccountDialog account={editing} open={dialogOpen} onOpenChange={setDialogOpen} />
 
