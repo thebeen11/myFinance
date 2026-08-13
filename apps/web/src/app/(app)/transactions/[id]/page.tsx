@@ -10,7 +10,10 @@ import { toast } from 'sonner';
 import { transactionItemsRemove } from '@/api';
 import type { TransactionItemResponse } from '@/api';
 import { SaveToCatalogueDialog } from '@/components/transactions/save-to-catalogue-dialog';
-import { TransactionChargesCard } from '@/components/transactions/transaction-charges-card';
+import {
+  TransactionChargesFooter,
+  useTransactionCharges,
+} from '@/components/transactions/transaction-charges';
 import { TransactionDialog } from '@/components/transactions/transaction-dialog';
 import { TransactionItemCategorySelect } from '@/components/transactions/transaction-item-category-select';
 import { TransactionItemDialog } from '@/components/transactions/transaction-item-dialog';
@@ -107,6 +110,11 @@ export default function TransactionDetailPage() {
    * the receipt it reimbursed, not from here.
    */
   const isSettlement = receipt?.isSettlement ?? false;
+
+  // Held here rather than inside the footer because "Add charge" lives in the
+  // section header next to "Add line", while the rows it appends render in the
+  // lines table's footer.
+  const charges = useTransactionCharges(receipt);
 
   if (transaction.isError) {
     return (
@@ -240,16 +248,22 @@ export default function TransactionDetailPage() {
         <>
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-lg font-semibold tracking-tight">What was bought</h2>
-            <Button
-              disabled={!receipt}
-              onClick={() => {
-                setEditingItem(undefined);
-                setItemDialogOpen(true);
-              }}
-            >
-              <Plus data-icon="inline-start" />
-              Add line
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="secondary" disabled={!receipt} onClick={charges.addCharge}>
+                <Plus data-icon="inline-start" />
+                Add charge
+              </Button>
+              <Button
+                disabled={!receipt}
+                onClick={() => {
+                  setEditingItem(undefined);
+                  setItemDialogOpen(true);
+                }}
+              >
+                <Plus data-icon="inline-start" />
+                Add line
+              </Button>
+            </div>
           </div>
 
           <Card className="[--card-spacing:0px] py-0">
@@ -369,12 +383,13 @@ export default function TransactionDetailPage() {
                   ))
                 )}
               </TableBody>
+              {/* Tax, service charge, delivery — the receipt's tail, in the same
+                  card as the lines it is charged on top of. */}
+              {receipt ? (
+                <TransactionChargesFooter transaction={receipt} charges={charges} />
+              ) : null}
             </Table>
           </Card>
-
-          <h2 className="text-lg font-semibold tracking-tight">Additional charges</h2>
-
-          {receipt ? <TransactionChargesCard transaction={receipt} /> : null}
 
           {/* Only when a line is filed under a category belonging to another wallet.
               An ordinary receipt has nothing to divide and shows no section at all. */}
