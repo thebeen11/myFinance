@@ -35,7 +35,9 @@ import { categoriesOfKind } from '@/lib/category-selection';
 import { queryKeys } from '@/lib/query-keys';
 
 const schema = z.object({
-  code: z.string().min(1, 'Give the product a code').max(40),
+  // Optional: plenty of things you buy carry no printed SKU. Blank is sent as
+  // '' rather than omitted, which is how the API is told to clear an old code.
+  code: z.string().max(40, 'Use 40 characters or fewer'),
   name: z.string().min(1, 'Give the product a name').max(160),
   // Required by the API. It is the default a receipt line inherits, not a binding
   // one — a line may be re-categorised without touching the product.
@@ -97,7 +99,7 @@ export const ProductDialog = ({
       const body = {
         merchantId,
         categoryId: parsed.categoryId,
-        code: parsed.code,
+        code: parsed.code.trim(),
         name: parsed.name,
         lastPriceMinor: toMinor(parsed.lastPrice, DEFAULT_CURRENCY),
       };
@@ -137,7 +139,11 @@ export const ProductDialog = ({
             <Input id="code" placeholder="IDM-001" autoComplete="off" {...form.register('code')} />
             {form.formState.errors.code ? (
               <p className="text-destructive text-xs">{form.formState.errors.code.message}</p>
-            ) : null}
+            ) : (
+              <p className="text-muted-foreground text-xs">
+                Optional. The shop&rsquo;s own code, if it prints one.
+              </p>
+            )}
           </div>
 
           <div className="grid gap-2">

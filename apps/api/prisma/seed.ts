@@ -17,21 +17,21 @@ const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) })
  * Restores the default categories and a Cash wallet for one user.
  *
  * Registration already does this for every new account, so seeding is now a
- * repair tool rather than a first-run step. It targets SEED_USER_EMAIL, or the
- * oldest user when that is unset. Every row needs an owner, so there is nobody
- * to seed for until someone has registered.
+ * repair tool rather than a first-run step. It targets SEED_USER_USERNAME, or
+ * the oldest user when that is unset. Every row needs an owner, so there is
+ * nobody to seed for until someone has registered.
  */
 const main = async (): Promise<void> => {
-  const email = process.env.SEED_USER_EMAIL?.toLowerCase();
+  const username = process.env.SEED_USER_USERNAME?.toLowerCase();
 
-  const user = email
-    ? await prisma.user.findUnique({ where: { email } })
+  const user = username
+    ? await prisma.user.findUnique({ where: { username } })
     : await prisma.user.findFirst({ orderBy: { createdAt: 'asc' } });
 
   if (!user) {
     console.log(
-      email
-        ? `No user with email ${email}. Register at http://localhost:3000/register first.`
+      username
+        ? `No user named ${username}. Register at http://localhost:3000/register first.`
         : 'No users yet — register at http://localhost:3000/register first, which seeds these defaults automatically.',
     );
     return;
@@ -71,7 +71,7 @@ const main = async (): Promise<void> => {
     prisma.account.count({ where: { userId: user.id } }),
   ]);
 
-  console.log(`Seed complete for ${user.email}: ${categories} categories, ${accounts} accounts.`);
+  console.log(`Seed complete for ${user.username}: ${categories} categories, ${accounts} accounts.`);
 };
 
 main()

@@ -55,7 +55,7 @@ describe('TokenService', () => {
         return Promise.resolve(storedToken);
       });
 
-      const issued = await service.issue({ id: USER_ID, email: 'owner@example.com' });
+      const issued = await service.issue({ id: USER_ID, username: 'owner' });
 
       expect(persistedHash).toHaveLength(64); // sha256, hex
       expect(persistedHash).not.toBe(issued.refreshToken);

@@ -32,8 +32,8 @@ export const configureApp = (app: INestApplication): INestApplication => {
 
   if (process.env.NODE_ENV !== 'production') {
     const config = new DocumentBuilder()
-      .setTitle('myFinance API')
-      .setDescription('Accounts, categories and transactions for myFinance.')
+      .setTitle('Erumah API')
+      .setDescription('Accounts, categories and transactions for Erumah.')
       .setVersion('1.0')
       // Not cosmetic: the generated frontend client only attaches a bearer token
       // to operations the spec marks as secured.
@@ -59,7 +59,7 @@ const bootstrap = async (): Promise<void> => {
   const port = Number(process.env.PORT ?? 8001);
 
   await app.listen(port);
-  Logger.log(`myFinance API listening on http://localhost:${port}`, 'Bootstrap');
+  Logger.log(`Erumah API listening on http://localhost:${port}`, 'Bootstrap');
 };
 
 if (require.main === module) {

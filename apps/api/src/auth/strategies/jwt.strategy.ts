@@ -16,7 +16,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   /** Whatever this returns becomes `request.user`, read by `@CurrentUser()`. */
-  validate(payload: JwtPayload): { userId: string; email: string } {
-    return { userId: payload.sub, email: payload.email };
+  validate(payload: JwtPayload): { userId: string; username: string } {
+    return { userId: payload.sub, username: payload.username };
   }
 }

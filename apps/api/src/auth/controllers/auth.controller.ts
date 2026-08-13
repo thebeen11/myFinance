@@ -25,7 +25,7 @@ export class AuthController {
   @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Exchange email and password for a token pair.' })
+  @ApiOperation({ summary: 'Exchange username and password for a token pair.' })
   login(@Body() dto: LoginDto): Promise<AuthTokensResponse> {
     return this.authService.login(dto);
   }

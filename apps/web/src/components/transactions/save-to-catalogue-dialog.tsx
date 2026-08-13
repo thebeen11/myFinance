@@ -23,7 +23,7 @@ import { Label } from '@/components/ui/label';
 import { queryKeys } from '@/lib/query-keys';
 
 const schema = z.object({
-  code: z.string().min(1, 'Give the product a code').max(40),
+  code: z.string().max(40, 'Use 40 characters or fewer'),
 });
 
 type FormValues = z.input<typeof schema>;
@@ -38,9 +38,10 @@ interface SaveToCatalogueDialogProps {
 /**
  * Promotes a hand-typed line into the merchant's catalogue.
  *
- * A line needs no product code — that is the point of being able to type one —
- * so the code is asked for only here, at the moment it becomes master data. Name,
- * price and category come from the line, which is what was actually paid.
+ * The code is offered here, at the moment the line becomes master data, and may
+ * be skipped — a line was typed by hand precisely because the shop had nothing
+ * to scan. Name, price and category come from the line, which is what was
+ * actually paid.
  *
  * This is two calls rather than one endpoint, reusing `POST /products`. They are
  * not atomic: if the link fails the product still exists, so the error says so
@@ -77,7 +78,7 @@ export const SaveToCatalogueDialog = ({
         body: {
           merchantId,
           categoryId: item.category.id,
-          code,
+          code: code.trim(),
           name: item.name,
           lastPriceMinor: item.unitPriceMinor,
         },
@@ -137,7 +138,7 @@ export const SaveToCatalogueDialog = ({
               <p className="text-destructive text-xs">{form.formState.errors.code.message}</p>
             ) : (
               <p className="text-muted-foreground text-xs">
-                The shop&rsquo;s own code for this. Unique within this merchant.
+                Optional. The shop&rsquo;s own code for this, unique within this merchant.
               </p>
             )}
           </div>

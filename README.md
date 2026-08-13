@@ -1,4 +1,4 @@
-# myFinance
+# Erumah
 
 Personal finance tracking: a NestJS REST API over Supabase Postgres, and a Next.js web client.
 
@@ -9,7 +9,7 @@ packages/shared  enums + money helpers shared by both
 ```
 
 The web app never talks to the database — the API is the only writer. Supabase is used as managed
-Postgres. Sign-in is email + password with a JWT issued by the API; registration is invite-only and
+Postgres. Sign-in is username + password with a JWT issued by the API; registration is invite-only and
 every row is scoped to its owner.
 
 ## Setup
@@ -41,7 +41,7 @@ pnpm db:push     # applies prisma/schema.prisma to the database
 
 You do not need to seed: registering creates the default categories and a Cash wallet for the new
 account. `pnpm db:seed` is a repair tool that restores those defaults for an existing user
-(`SEED_USER_EMAIL`, otherwise the oldest).
+(`SEED_USER_USERNAME`, otherwise the oldest).
 
 ### 3. Run
 

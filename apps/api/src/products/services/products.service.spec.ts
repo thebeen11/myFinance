@@ -228,4 +228,54 @@ describe('ProductsService', () => {
       expect(prisma.category.findFirst).not.toHaveBeenCalled();
     });
   });
+
+  describe('code', () => {
+    const createData = (): { code: string | null | undefined } =>
+      (prisma.product.create.mock.calls[0] as [{ data: { code: string | null | undefined } }])[0]
+        .data;
+
+    const updateData = (): { code: string | null | undefined } =>
+      (prisma.product.update.mock.calls[0] as [{ data: { code: string | null | undefined } }])[0]
+        .data;
+
+    it('stores NULL, not an empty string, for a product created without one', async () => {
+      prisma.merchant.findFirst.mockResolvedValue({ id: MERCHANT_ID });
+      prisma.category.findFirst.mockResolvedValue(category);
+      prisma.product.create.mockResolvedValue({ ...product, code: null });
+
+      await service.create(USER_ID, { ...createDto, code: undefined });
+
+      // `''` would collide with the next uncoded product under
+      // @@unique([merchantId, code]); NULLs are distinct, so NULL is the only
+      // representation of "no code" the constraint tolerates.
+      expect(createData().code).toBeNull();
+    });
+
+    it('clears the code when an update sends a blank one', async () => {
+      prisma.product.findFirst.mockResolvedValue(product);
+      prisma.product.update.mockResolvedValue({ ...product, code: null });
+
+      await service.update(USER_ID, product.id, { code: '  ' });
+
+      expect(updateData().code).toBeNull();
+    });
+
+    it('leaves the code alone when an update omits it', async () => {
+      prisma.product.findFirst.mockResolvedValue(product);
+      prisma.product.update.mockResolvedValue(product);
+
+      await service.update(USER_ID, product.id, { name: 'Indomie Soto' });
+
+      expect(updateData().code).toBeUndefined();
+    });
+
+    it('trims a code that was typed with stray whitespace', async () => {
+      prisma.product.findFirst.mockResolvedValue(product);
+      prisma.product.update.mockResolvedValue(product);
+
+      await service.update(USER_ID, product.id, { code: ' IDM-002 ' });
+
+      expect(updateData().code).toBe('IDM-002');
+    });
+  });
 });

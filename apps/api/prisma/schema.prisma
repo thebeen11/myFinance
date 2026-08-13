@@ -39,7 +39,11 @@ enum TransactionType {
 /// thing keeping one user's money out of another's queries.
 model User {
   id           String   @id @default(uuid()) @db.Uuid
-  email        String   @unique
+  /// What you sign in with. Deliberately not an email address: the app is
+  /// invite-only, sends no mail and has no password reset, so an address would
+  /// be an identifier dressed up as a contact detail. Stored lowercased by the
+  /// API so casing cannot create a second account.
+  username     String   @unique @db.VarChar(32)
   passwordHash String
   displayName  String?
   createdAt    DateTime @default(now())
@@ -174,7 +178,13 @@ model Product {
   categoryId     String?  @db.Uuid
   /// The merchant's own SKU. Unique within that merchant, not globally — two
   /// shops may each call something "A-01".
-  code           String   @db.VarChar(40)
+  ///
+  /// Null when the shop prints no code, or when a hand-typed receipt line was
+  /// promoted to the catalogue without one. Postgres treats NULLs as distinct,
+  /// so `@@unique([merchantId, code])` still bars two rows sharing a real code
+  /// while letting a merchant hold any number of uncoded products — the same
+  /// property Category.@@unique relies on for unassigned categories.
+  code           String?  @db.VarChar(40)
   name           String
   lastPriceMinor Int
   /// Always IDR today and not settable through the API, but stored per row so

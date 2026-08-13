@@ -85,7 +85,7 @@ export const longMonth = (isoDate: string): string =>
 /** ISO timestamp -> "2026-08-10", the value shape an <input type="date"> wants. */
 export const dateInputValue = (isoDate: string): string => isoDate.slice(0, 10);
 
-/** "Rina Wijaya" -> "RW"; falls back to the first letter of an email local part. */
+/** "Rina Wijaya" -> "RW"; a username splits on its dots too, so "rina.w" -> "RW". */
 export const initials = (name: string): string => {
   const words = name
     .trim()

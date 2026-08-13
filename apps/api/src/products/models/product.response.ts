@@ -19,8 +19,13 @@ export class ProductResponse {
   })
   category!: CategorySummaryResponse | null;
 
-  @ApiProperty({ example: 'IDM-001' })
-  code!: string;
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: 'IDM-001',
+    description: 'Null when the shop prints no code for this.',
+  })
+  code!: string | null;
 
   @ApiProperty({ example: 'Indomie Goreng' })
   name!: string;

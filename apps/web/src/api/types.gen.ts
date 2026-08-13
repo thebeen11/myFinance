@@ -5,7 +5,7 @@ export type ClientOptions = {
 };
 
 export type RegisterDto = {
-  email: string;
+  username: string;
   /**
    * Stored only as an argon2 hash.
    */
@@ -19,7 +19,7 @@ export type RegisterDto = {
 
 export type UserResponse = {
   id: string;
-  email: string;
+  username: string;
   displayName?: string | null;
   createdAt: string;
 };
@@ -41,7 +41,7 @@ export type AuthTokensResponse = {
 };
 
 export type LoginDto = {
-  email: string;
+  username: string;
   password: string;
 };
 
@@ -283,7 +283,10 @@ export type ProductResponse = {
    * Only null for rows that predate categorised products.
    */
   category?: CategorySummaryResponse | null;
-  code: string;
+  /**
+   * Null when the shop prints no code for this.
+   */
+  code?: string | null;
   name: string;
   /**
    * Price last paid, in minor units of `currency`.
@@ -307,9 +310,11 @@ export type CreateProductDto = {
    */
   categoryId: string;
   /**
-   * The merchant's own SKU. Unique within it.
+   * The merchant's own SKU, unique within that merchant. Optional: plenty of
+   * things you buy have no printed code, and an empty string clears one that
+   * was set rather than storing a blank.
    */
-  code: string;
+  code?: string;
   name: string;
   /**
    * Price last paid, in IDR minor units.
@@ -327,7 +332,9 @@ export type UpdateProductDto = {
    */
   categoryId?: string;
   /**
-   * The merchant's own SKU. Unique within it.
+   * The merchant's own SKU, unique within that merchant. Optional: plenty of
+   * things you buy have no printed code, and an empty string clears one that
+   * was set rather than storing a blank.
    */
   code?: string;
   name?: string;
@@ -354,7 +361,7 @@ export type TransactionMerchantResponse = {
 
 export type TransactionItemProductResponse = {
   id: string;
-  code: string;
+  code?: string | null;
   name: string;
 };
 

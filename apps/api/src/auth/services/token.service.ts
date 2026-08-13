@@ -28,8 +28,8 @@ export class TokenService {
     private readonly jwt: JwtService,
   ) {}
 
-  async issue(user: { id: string; email: string }): Promise<Omit<AuthTokensResponse, 'user'>> {
-    const payload: JwtPayload = { sub: user.id, email: user.email };
+  async issue(user: { id: string; username: string }): Promise<Omit<AuthTokensResponse, 'user'>> {
+    const payload: JwtPayload = { sub: user.id, username: user.username };
 
     const accessToken = await this.jwt.signAsync(payload, {
       secret: requireEnv('JWT_ACCESS_SECRET'),

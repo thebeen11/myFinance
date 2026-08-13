@@ -4,8 +4,8 @@ export class UserResponse {
   @ApiProperty({ format: 'uuid' })
   id!: string;
 
-  @ApiProperty({ format: 'email' })
-  email!: string;
+  @ApiProperty({ example: 'bagus' })
+  username!: string;
 
   @ApiPropertyOptional({ type: String, nullable: true })
   displayName!: string | null;

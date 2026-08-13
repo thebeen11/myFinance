@@ -72,7 +72,7 @@ export default function DashboardPage() {
   }
 
   const currencies = [display.currency, ...display.others];
-  const name = me.data?.displayName ?? me.data?.email.split('@')[0] ?? '';
+  const name = me.data?.displayName ?? me.data?.username ?? '';
 
   return (
     <div className="flex flex-col gap-5">

@@ -116,7 +116,7 @@ export const authRegister = <ThrowOnError extends boolean = false>(
   });
 
 /**
- * Exchange email and password for a token pair.
+ * Exchange username and password for a token pair.
  */
 export const authLogin = <ThrowOnError extends boolean = false>(
   options: Options<AuthLoginData, ThrowOnError>,

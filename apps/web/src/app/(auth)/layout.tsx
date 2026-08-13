@@ -16,7 +16,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
       <aside className="bg-inverted text-inverted-foreground hidden flex-col justify-between p-10 lg:flex">
         <div className="flex items-center gap-3">
           <BrandMark />
-          <span className="text-lg font-semibold tracking-tight">myFinance</span>
+          <span className="text-lg font-semibold tracking-tight">Erumah</span>
         </div>
 
         <div className="max-w-sm">
@@ -36,7 +36,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
         <div className="w-full max-w-sm">
           <div className="mb-8 flex items-center gap-3 lg:hidden">
             <BrandMark size="sm" />
-            <span className="font-semibold tracking-tight">myFinance</span>
+            <span className="font-semibold tracking-tight">Erumah</span>
           </div>
           {children}
         </div>

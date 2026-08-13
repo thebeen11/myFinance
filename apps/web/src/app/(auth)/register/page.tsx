@@ -12,7 +12,10 @@ import { Label } from '@/components/ui/label';
 import { useRegister } from '@/hooks/use-auth';
 
 const schema = z.object({
-  email: z.email('Enter a valid email address'),
+  // Mirrors the API's rule so the message arrives without a round-trip.
+  username: z
+    .string()
+    .regex(/^[a-z0-9._-]{3,32}$/i, '3–32 letters, digits, dot, underscore or hyphen'),
   password: z.string().min(8, 'Use at least 8 characters'),
   displayName: z.string().max(80).optional(),
   inviteCode: z.string().min(1, 'An invite code is required'),
@@ -28,7 +31,7 @@ const errorMessage = (error: unknown): string => {
     case 403:
       return 'That invite code is not valid.';
     case 409:
-      return 'An account with that email already exists.';
+      return 'That username is already taken.';
     default:
       return 'Could not create the account. Please try again.';
   }
@@ -39,7 +42,7 @@ export default function RegisterPage() {
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { email: '', password: '', displayName: '', inviteCode: '' },
+    defaultValues: { username: '', password: '', displayName: '', inviteCode: '' },
   });
 
   return (
@@ -47,7 +50,7 @@ export default function RegisterPage() {
       <div className="space-y-1.5">
         <h1 className="text-3xl font-semibold tracking-tight">Create your account</h1>
         <p className="text-muted-foreground text-sm">
-          myFinance is invite-only. You need a code from the owner.
+          Erumah is invite-only. You need a code from the owner.
         </p>
       </div>
 
@@ -55,7 +58,7 @@ export default function RegisterPage() {
         className="space-y-4"
         onSubmit={form.handleSubmit((values) =>
           register.mutate({
-            email: values.email,
+            username: values.username,
             password: values.password,
             inviteCode: values.inviteCode,
             displayName: values.displayName || undefined,
@@ -71,11 +74,15 @@ export default function RegisterPage() {
         </div>
 
         <div className="grid gap-2">
-          <Label htmlFor="email">Email</Label>
-          <Input id="email" type="email" autoComplete="email" {...form.register('email')} />
-          {form.formState.errors.email ? (
-            <p className="text-destructive text-xs">{form.formState.errors.email.message}</p>
-          ) : null}
+          <Label htmlFor="username">Username</Label>
+          <Input id="username" autoComplete="username" {...form.register('username')} />
+          {form.formState.errors.username ? (
+            <p className="text-destructive text-xs">{form.formState.errors.username.message}</p>
+          ) : (
+            <p className="text-muted-foreground text-xs">
+              What you sign in with. Letters, digits, dot, underscore or hyphen.
+            </p>
+          )}
         </div>
 
         <div className="grid gap-2">
@@ -95,7 +102,7 @@ export default function RegisterPage() {
             <p className="text-destructive text-xs">{form.formState.errors.password.message}</p>
           ) : null}
           <p className="text-muted-foreground text-xs">
-            There is no password reset — this app sends no email. Store it somewhere safe.
+            There is no password reset. Store it somewhere safe.
           </p>
         </div>
 

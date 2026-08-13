@@ -1,4 +1,4 @@
-import { Wallet } from 'lucide-react';
+import { House } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 
@@ -12,9 +12,9 @@ const SIZES = {
  * The green tile that stands in for a logo.
  *
  * There is no brand asset in this repository and none is being invented here:
- * the wordmark "myFinance" is the real identity, and this is a neutral stock
- * glyph on the brand colour. Swapping it for a real mark should touch only this
- * file.
+ * the wordmark "Erumah" is the real identity, and this is a stock glyph on the
+ * brand colour — a house, because "rumah" is what the name is built on. Swapping
+ * it for a real mark should touch only this file.
  */
 export const BrandMark = ({
   size = 'md',
@@ -31,6 +31,6 @@ export const BrandMark = ({
       className,
     )}
   >
-    <Wallet strokeWidth={2.25} />
+    <House strokeWidth={2.25} />
   </span>
 );

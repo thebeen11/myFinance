@@ -12,7 +12,7 @@ const CASH_ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 
 const user = {
   id: USER_ID,
-  email: 'owner@example.com',
+  username: 'owner',
   passwordHash: 'replaced-per-test',
   displayName: null,
   createdAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -20,7 +20,7 @@ const user = {
 };
 
 const registration = {
-  email: 'Owner@Example.com',
+  username: 'Owner',
   password: 'a-long-enough-password',
   inviteCode: INVITE_CODE,
 };
@@ -110,12 +110,12 @@ describe('AuthService', () => {
       expect(stored).not.toContain(registration.password);
     });
 
-    it('lowercases the email so casing cannot create a second account', async () => {
+    it('lowercases the username so casing cannot create a second account', async () => {
       await service.register(registration);
 
       expect(tx.user.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ email: 'owner@example.com' }) as object,
+          data: expect.objectContaining({ username: 'owner' }) as object,
         }),
       );
     });
@@ -167,8 +167,8 @@ describe('AuthService', () => {
       });
 
       await expect(
-        service.login({ email: user.email, password: registration.password }),
-      ).resolves.toMatchObject({ accessToken: 'access', user: { email: user.email } });
+        service.login({ username: user.username, password: registration.password }),
+      ).resolves.toMatchObject({ accessToken: 'access', user: { username: user.username } });
     });
 
     it('rejects a wrong password', async () => {
@@ -178,25 +178,25 @@ describe('AuthService', () => {
       });
 
       await expect(
-        service.login({ email: user.email, password: 'not-the-password' }),
+        service.login({ username: user.username, password: 'not-the-password' }),
       ).rejects.toBeInstanceOf(UnauthorizedException);
     });
 
-    it('does not reveal whether an email is registered', async () => {
+    it('does not reveal whether a username is registered', async () => {
       prisma.user.findUnique.mockResolvedValue({
         ...user,
         passwordHash: await hash(registration.password),
       });
       const wrongPassword = await service
-        .login({ email: user.email, password: 'not-the-password' })
+        .login({ username: user.username, password: 'not-the-password' })
         .catch((error: Error) => error.message);
 
       prisma.user.findUnique.mockResolvedValue(null);
-      const unknownEmail = await service
-        .login({ email: 'nobody@example.com', password: 'anything-at-all' })
+      const unknownUsername = await service
+        .login({ username: 'nobody', password: 'anything-at-all' })
         .catch((error: Error) => error.message);
 
-      expect(unknownEmail).toBe(wrongPassword);
+      expect(unknownUsername).toBe(wrongPassword);
     });
   });
 });

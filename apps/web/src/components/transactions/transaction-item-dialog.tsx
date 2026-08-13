@@ -242,7 +242,8 @@ export const TransactionItemDialog = ({
                     <SelectItem value={NO_PRODUCT}>Not in the catalogue</SelectItem>
                     {selectableProducts.map((product) => (
                       <SelectItem key={product.id} value={product.id}>
-                        {product.code} · {product.name}
+                        {product.code ? `${product.code} · ` : ''}
+                        {product.name}
                       </SelectItem>
                     ))}
                   </SelectContent>

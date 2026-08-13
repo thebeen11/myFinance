@@ -289,7 +289,7 @@ export default function TransactionDetailPage() {
                       <TableCell className="pl-5 font-medium">
                         <span className="flex flex-col">
                           {item.name}
-                          {item.product ? (
+                          {item.product?.code ? (
                             <span className="text-muted-foreground text-xs font-normal">
                               {item.product.code}
                             </span>

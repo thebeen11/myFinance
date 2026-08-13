@@ -8,7 +8,7 @@ web
 
 ## Users
 
-**The owner, plus people the owner invites.** myFinance is a private, invite-only tool. There is a public
+**The owner, plus people the owner invites.** Erumah is a private, invite-only tool. There is a public
 registration _page_, but it is gated on a shared invite code the owner hands out, so nobody arrives
 without being let in deliberately and there is no audience to acquire.
 
@@ -129,7 +129,7 @@ rather than paint them out:
 
 ### Built as part of authentication
 
-- **User + authentication** — email and password, argon2-hashed, with a **JWT issued by Nest**. Not
+- **User + authentication** — username and password, argon2-hashed, with a **JWT issued by Nest**. Not
   Supabase Auth, not a third-party identity provider, no OAuth, no passkeys. A 15-minute access token
   plus a rotating, revocable refresh token.
 - **Per-user data ownership** — every `Account`, `Category` and `Transaction` is owned by a user, with
@@ -171,9 +171,14 @@ rather than paint them out:
 
 ## Brand Commitments
 
-- The name is **myFinance** — lowercase `m`, capital `F`. It appears in the header, page metadata, and
-  the `@myfinance/*` package scope.
-- No logo, wordmark, icon set, illustration, or brand asset exists in the repository.
+- The name is **Erumah** — capital `E`, the rest lowercase. It appears in the app header and the auth
+  screens, in the page metadata title, and in the Swagger title. It was formerly _myFinance_.
+- The rename was deliberately kept to display strings. The `@myfinance/*` package scope and the
+  `myfinance.accessToken` / `myfinance.refreshToken` localStorage keys are **not** renamed: the scope is
+  an internal identifier with no user-visible surface, and rewriting the storage keys would make every
+  live session unreadable and sign everyone out on deploy. Do not "finish the job" on either.
+- No logo, wordmark, icon set, illustration, or brand asset file exists in the repository. The mark is a
+  lucide `House` glyph on the brand green, isolated in `apps/web/src/components/shell/brand-mark.tsx`.
 - No voice or personality has been established or made binding.
 
 ## Evidence on Hand

@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsInt, IsString, IsUUID, Min, MaxLength, MinLength } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsInt, IsOptional, IsString, IsUUID, Min, MaxLength, MinLength } from 'class-validator';
 
 export class CreateProductDto {
   @ApiProperty({ format: 'uuid', description: 'The merchant that sells this product.' })
@@ -15,11 +15,16 @@ export class CreateProductDto {
   @IsUUID()
   categoryId!: string;
 
-  @ApiProperty({ example: 'IDM-001', description: "The merchant's own SKU. Unique within it." })
+  /**
+   * The merchant's own SKU, unique within that merchant. Optional: plenty of
+   * things you buy have no printed code, and an empty string clears one that
+   * was set rather than storing a blank.
+   */
+  @ApiPropertyOptional({ example: 'IDM-001' })
+  @IsOptional()
   @IsString()
-  @MinLength(1)
   @MaxLength(40)
-  code!: string;
+  code?: string;
 
   @ApiProperty({ example: 'Indomie Goreng' })
   @IsString()

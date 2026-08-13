@@ -61,7 +61,7 @@ export default function MerchantProductsPage() {
     return term
       ? all.filter(
           (product) =>
-            product.code.toLowerCase().includes(term) ||
+            product.code?.toLowerCase().includes(term) ||
             product.name.toLowerCase().includes(term),
         )
       : all;
@@ -164,7 +164,7 @@ export default function MerchantProductsPage() {
               rows.map((product) => (
                 <TableRow key={product.id} className="hover:bg-muted/50">
                   <TableCell className="text-muted-foreground pl-5 font-mono text-xs">
-                    {product.code}
+                    {product.code ?? '—'}
                   </TableCell>
                   <TableCell className="font-medium">{product.name}</TableCell>
                   <TableCell className="text-right tabular-nums">
@@ -214,7 +214,7 @@ export default function MerchantProductsPage() {
             <AlertDialogTitle>Delete this product?</AlertDialogTitle>
             <AlertDialogDescription>
               {pendingDelete
-                ? `${pendingDelete.code} — ${pendingDelete.name}. This cannot be undone.`
+                ? `${pendingDelete.code ? `${pendingDelete.code} — ` : ''}${pendingDelete.name}. This cannot be undone.`
                 : null}
             </AlertDialogDescription>
           </AlertDialogHeader>

@@ -38,7 +38,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         {isResolved ? (
           <TopNav
             displayName={me.data.displayName}
-            email={me.data.email}
+            username={me.data.username}
             onSignOut={() => logout.mutate()}
             isSigningOut={logout.isPending}
           />

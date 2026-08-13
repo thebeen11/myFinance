@@ -29,10 +29,10 @@ export class AuthService {
     const passwordHash = await hash(dto.password);
 
     const user = await this.prisma.$transaction(async (tx) => {
-      // A duplicate email surfaces as P2002 -> 409 through PrismaExceptionFilter.
+      // A duplicate username surfaces as P2002 -> 409 through PrismaExceptionFilter.
       const created = await tx.user.create({
         data: {
-          email: dto.email.toLowerCase(),
+          username: dto.username.toLowerCase(),
           passwordHash,
           displayName: dto.displayName ?? null,
         },
@@ -71,12 +71,14 @@ export class AuthService {
   }
 
   async login(dto: LoginDto): Promise<AuthTokensResponse> {
-    const user = await this.prisma.user.findUnique({ where: { email: dto.email.toLowerCase() } });
+    const user = await this.prisma.user.findUnique({
+      where: { username: dto.username.toLowerCase() },
+    });
 
-    // One message for both branches: whether an email is registered is not
+    // One message for both branches: whether a username is taken is not
     // something an unauthenticated caller gets to learn.
     if (!user || !(await verify(user.passwordHash, dto.password))) {
-      throw new UnauthorizedException('Invalid email or password');
+      throw new UnauthorizedException('Invalid username or password');
     }
 
     return this.withUser(user);
@@ -114,7 +116,7 @@ export class AuthService {
   private toResponse(user: UserModel): UserResponse {
     return {
       id: user.id,
-      email: user.email,
+      username: user.username,
       displayName: user.displayName,
       createdAt: user.createdAt.toISOString(),
     };

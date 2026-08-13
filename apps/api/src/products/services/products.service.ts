@@ -24,6 +24,7 @@ export class ProductsService {
    *
    * Unpaginated and ordered by code, for the same reason merchants are: this is
    * bounded master data, and the merchant page wants the whole catalogue at once.
+   * Uncoded products sort last, together, in name order rather than at random.
    */
   async findAll(userId: string, merchantId?: string, search?: string): Promise<ProductResponse[]> {
     const term = search?.trim();
@@ -42,7 +43,7 @@ export class ProductsService {
           : {}),
       },
       include: productInclude,
-      orderBy: { code: 'asc' },
+      orderBy: [{ code: { sort: 'asc', nulls: 'last' } }, { name: 'asc' }],
     });
 
     return products.map((product) => this.toResponse(product));
@@ -63,7 +64,7 @@ export class ProductsService {
         userId,
         merchantId: dto.merchantId,
         categoryId: dto.categoryId,
-        code: dto.code,
+        code: this.normaliseCode(dto.code) ?? null,
         name: dto.name,
         lastPriceMinor: dto.lastPriceMinor,
       },
@@ -85,7 +86,7 @@ export class ProductsService {
       data: {
         merchantId: dto.merchantId,
         categoryId: dto.categoryId,
-        code: dto.code,
+        code: this.normaliseCode(dto.code),
         name: dto.name,
         lastPriceMinor: dto.lastPriceMinor,
       },
@@ -112,6 +113,20 @@ export class ProductsService {
     }
 
     return product;
+  }
+
+  /**
+   * Distinguishes "leave the code alone" from "clear it".
+   *
+   * An absent field on a PATCH means the caller said nothing about the code, so
+   * it stays; a blank or whitespace-only string is the form's way of clearing
+   * one, and must land as NULL rather than as `''` — `''` would collide under
+   * `@@unique([merchantId, code])` the moment a second uncoded product appeared.
+   */
+  private normaliseCode(code?: string): string | null | undefined {
+    if (code === undefined) return undefined;
+
+    return code.trim() || null;
   }
 
   /**
