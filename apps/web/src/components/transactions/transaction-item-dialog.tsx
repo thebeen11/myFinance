@@ -2,7 +2,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { applyBasisPoints, fromMinor, toMinor } from '@myfinance/shared';
+import { BASIS_POINTS_SCALE, applyBasisPoints, fromMinor, toMinor } from '@myfinance/shared';
 import { useEffect } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
@@ -67,6 +67,19 @@ type FormValues = z.input<typeof schema>;
 /** A SelectItem value cannot be `''`, so "not in the catalogue" needs a sentinel. */
 const NO_PRODUCT = '__none__';
 
+/**
+ * Basis points are the wire format; nobody types "1000" for ten percent. The same
+ * pair the charges card keeps locally — a third caller is what should promote them
+ * to `packages/shared/src/money/`.
+ */
+const toPercent = (basisPoints: number): number => basisPoints / 100;
+
+/** Anything unusable — an emptied field arrives as NaN — is "no discount". */
+const toBasisPoints = (percent: number | undefined): number =>
+  percent === undefined || !Number.isFinite(percent)
+    ? 0
+    : Math.round((percent * BASIS_POINTS_SCALE) / 100);
+
 interface TransactionItemDialogProps {
   transaction: TransactionResponse;
   categories: CategoryResponse[];
@@ -88,6 +101,12 @@ interface TransactionItemDialogProps {
  * from it, so editing the quantity later re-applies it instead of leaving a figure
  * that describes the price this line used to be. That is deliberately the opposite
  * of an additional charge, where a typed amount wins over the arithmetic.
+ *
+ * It can still be entered either way. The money box is a view of the rate rather
+ * than a second field, so typing into it converts to a rate and the box then settles
+ * on whatever that rate actually comes to. A receipt's printed discount usually
+ * round-trips exactly; when it cannot, the settled figure is the one that will be
+ * saved — better than a box that quietly disagrees with the stored line.
  */
 export const TransactionItemDialog = ({
   transaction,
@@ -125,7 +144,7 @@ export const TransactionItemDialog = ({
       quantity: item?.quantity ?? 1,
       unitPrice: item ? fromMinor(item.unitPriceMinor, transaction.currency) : undefined,
       // A line with no discount reads as an empty field, not a typed "0".
-      discountPercent: item?.discountBasisPoints ? item.discountBasisPoints / 100 : undefined,
+      discountPercent: item?.discountBasisPoints ? toPercent(item.discountBasisPoints) : undefined,
     });
   }, [open, item, transaction.currency, form]);
 
@@ -142,7 +161,7 @@ export const TransactionItemDialog = ({
         quantity: parsed.quantity,
         unitPriceMinor: toMinor(parsed.unitPrice, transaction.currency),
         // The rate is all that is sent; the API derives the money from it.
-        discountBasisPoints: Math.round((parsed.discountPercent ?? 0) * 100),
+        discountBasisPoints: toBasisPoints(parsed.discountPercent),
       };
 
       return item
@@ -196,15 +215,41 @@ export const TransactionItemDialog = ({
   );
   // The same helper the API derives with, so this preview is the figure that will
   // be stored rather than one that usually agrees with it.
-  const discountMinor = applyBasisPoints(
-    grossMinor,
-    Math.round((Number.isFinite(discountPercent) ? (discountPercent ?? 0) : 0) * 100),
-  );
+  const discountMinor = applyBasisPoints(grossMinor, toBasisPoints(discountPercent));
   const lineTotalMinor = grossMinor - discountMinor;
+
+  // The money box is a view of the rate, not a second piece of state — which is why
+  // changing the quantity moves it on its own and the two can never disagree. An
+  // unset discount reads as an empty field rather than a typed zero.
+  const discountAmount =
+    discountPercent === undefined || !Number.isFinite(discountPercent)
+      ? undefined
+      : fromMinor(discountMinor, transaction.currency);
+
+  /**
+   * Entering the discount as money instead of a rate. Only the rate is stored, so
+   * the amount is turned into one immediately and the box then re-renders off it,
+   * settling on the figure that will actually be saved rather than one the API is
+   * about to round somewhere else.
+   */
+  const handleDiscountAmountChange = (amount: number | undefined): void => {
+    if (amount === undefined) {
+      form.setValue('discountPercent', undefined);
+      return;
+    }
+
+    // There is nothing to take a percentage of until a price has been typed.
+    const amountMinor = toMinor(amount, transaction.currency);
+    const basisPoints =
+      grossMinor > 0 ? Math.round((amountMinor * BASIS_POINTS_SCALE) / grossMinor) : 0;
+    form.setValue('discountPercent', toPercent(basisPoints));
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      {/* Wider than the other dialogs: the quantity/price/discount row is four
+          fields across, two of them money with a currency prefix. */}
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{item ? 'Edit line' : 'Add line'}</DialogTitle>
         </DialogHeader>
@@ -317,74 +362,109 @@ export const TransactionItemDialog = ({
             ) : null}
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
-            <div className="grid gap-2">
-              <Label htmlFor="quantity">Quantity</Label>
-              <Input
-                id="quantity"
-                type="number"
-                min={1}
-                step={1}
-                {...form.register('quantity', { valueAsNumber: true })}
-              />
-              {form.formState.errors.quantity ? (
-                <p className="text-destructive text-xs">{form.formState.errors.quantity.message}</p>
-              ) : null}
+          <div className="grid gap-2">
+            {/* Four across once there is room for it; two-up on a phone, where the
+                dialog is only `calc(100% - 2rem)` wide and a currency-prefixed money
+                field in a quarter of that has no space left for digits. The two
+                short numbers get a fixed column wide enough for their own labels;
+                the money fields take everything left over. */}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-[6.5rem_1fr_6.5rem_1fr] sm:gap-3">
+              <div className="grid gap-2">
+                <Label htmlFor="quantity">Quantity</Label>
+                <Input
+                  id="quantity"
+                  type="number"
+                  min={1}
+                  step={1}
+                  {...form.register('quantity', { valueAsNumber: true })}
+                  aria-invalid={Boolean(form.formState.errors.quantity)}
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="unitPrice">Unit price</Label>
+                <Controller
+                  control={form.control}
+                  name="unitPrice"
+                  render={({ field }) => (
+                    <CurrencyInput
+                      id="unitPrice"
+                      currency={transaction.currency}
+                      name={field.name}
+                      value={field.value}
+                      onChange={field.onChange}
+                      onBlur={field.onBlur}
+                      aria-invalid={Boolean(form.formState.errors.unitPrice)}
+                    />
+                  )}
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="discountPercent">Discount %</Label>
+                <Controller
+                  control={form.control}
+                  name="discountPercent"
+                  render={({ field }) => (
+                    <Input
+                      id="discountPercent"
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="any"
+                      inputMode="decimal"
+                      placeholder="—"
+                      value={field.value ?? ''}
+                      onBlur={() => {
+                        // Settle on the rate that will be stored: a typed 33.333 is
+                        // saved as 3333 basis points, so leaving 33.333 on screen
+                        // would state a figure nothing keeps — and the money box
+                        // beside it would already be showing the rounded one.
+                        // An emptied field stays empty, though: 0% is a typed
+                        // instruction, not the absence of one.
+                        if (field.value !== undefined && Number.isFinite(field.value)) {
+                          field.onChange(toPercent(toBasisPoints(field.value)));
+                        }
+                        field.onBlur();
+                      }}
+                      onChange={(event) => {
+                        const percent = event.target.valueAsNumber;
+                        field.onChange(Number.isFinite(percent) ? percent : undefined);
+                      }}
+                      aria-invalid={Boolean(form.formState.errors.discountPercent)}
+                    />
+                  )}
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="discountAmount">Discount amount</Label>
+                {/* Not a form field: its value is derived from the rate and its
+                    onChange writes back into it, so the pair cannot drift apart. */}
+                <CurrencyInput
+                  id="discountAmount"
+                  name="discountAmount"
+                  currency={transaction.currency}
+                  value={discountAmount}
+                  onChange={handleDiscountAmountChange}
+                  aria-invalid={Boolean(form.formState.errors.discountPercent)}
+                />
+              </div>
             </div>
 
-            <div className="grid gap-2">
-              <Label htmlFor="unitPrice">Unit price</Label>
-              <Controller
-                control={form.control}
-                name="unitPrice"
-                render={({ field }) => (
-                  <CurrencyInput
-                    id="unitPrice"
-                    currency={transaction.currency}
-                    name={field.name}
-                    value={field.value}
-                    onChange={field.onChange}
-                    onBlur={field.onBlur}
-                  />
-                )}
-              />
-              {form.formState.errors.unitPrice ? (
-                <p className="text-destructive text-xs">
-                  {form.formState.errors.unitPrice.message}
-                </p>
-              ) : null}
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="discountPercent">Discount %</Label>
-              <Controller
-                control={form.control}
-                name="discountPercent"
-                render={({ field }) => (
-                  <Input
-                    id="discountPercent"
-                    type="number"
-                    min={0}
-                    max={100}
-                    step="any"
-                    inputMode="decimal"
-                    placeholder="—"
-                    value={field.value ?? ''}
-                    onBlur={field.onBlur}
-                    onChange={(event) => {
-                      const percent = event.target.valueAsNumber;
-                      field.onChange(Number.isFinite(percent) ? percent : undefined);
-                    }}
-                    aria-invalid={Boolean(form.formState.errors.discountPercent)}
-                  />
-                )}
-              />
-              {form.formState.errors.discountPercent ? (
-                <p className="text-destructive text-xs">
-                  {form.formState.errors.discountPercent.message}
-                </p>
-              ) : null}
-            </div>
+            {/* Below the row, at full width: a message has no room inside a 2.75rem
+                column. */}
+            {form.formState.errors.quantity ? (
+              <p className="text-destructive text-xs">{form.formState.errors.quantity.message}</p>
+            ) : null}
+            {form.formState.errors.unitPrice ? (
+              <p className="text-destructive text-xs">{form.formState.errors.unitPrice.message}</p>
+            ) : null}
+            {form.formState.errors.discountPercent ? (
+              <p className="text-destructive text-xs">
+                {form.formState.errors.discountPercent.message}
+              </p>
+            ) : null}
           </div>
 
           <div className="bg-muted grid gap-1.5 rounded-xl px-4 py-3 text-sm">
