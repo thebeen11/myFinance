@@ -37,6 +37,7 @@ IPv6-only on new projects and usually will not resolve.
 
 ```bash
 pnpm db:push     # applies prisma/schema.prisma to the database
+pnpm db:rls      # enables RLS on every public table (Prisma leaves it off)
 ```
 
 You do not need to seed: registering creates the default categories and a Cash wallet for the new
@@ -63,6 +64,7 @@ The API's Swagger UI is at <http://localhost:8001/api> (click **Authorize** to p
 | `pnpm build` / `pnpm lint` / `pnpm typecheck` / `pnpm test` | Across every package                                        |
 | `pnpm generate:api`                                         | Regenerate the frontend's typed client from the running API |
 | `pnpm db:push` / `pnpm db:seed` / `pnpm db:studio`          | Schema sync, seed data, Prisma Studio                       |
+| `pnpm db:rls`                                               | Enable RLS + drop PostgREST grants on every `public` table  |
 | `pnpm db:migrate` / `pnpm db:deploy`                        | Emit a SQL migration / apply migrations                     |
 
 After changing any controller, DTO or response class, restart the API and run `pnpm generate:api` —

@@ -18,6 +18,7 @@
     "db:migrate": "pnpm --filter @myfinance/api prisma:migrate",
     "db:deploy": "pnpm --filter @myfinance/api prisma:deploy",
     "db:seed": "pnpm --filter @myfinance/api prisma:seed",
+    "db:rls": "pnpm --filter @myfinance/api prisma:rls",
     "db:studio": "pnpm --filter @myfinance/api prisma:studio",
     "generate:api": "pnpm --filter @myfinance/web generate:api"
   },
