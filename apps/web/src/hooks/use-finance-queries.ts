@@ -13,6 +13,7 @@ import {
   merchantsFindAll,
   merchantsFindOne,
   productsFindAll,
+  reimbursementsFindOutstanding,
   transactionsFindAll,
   transactionsFindOne,
   transactionsSummarise,
@@ -120,6 +121,19 @@ export const useProducts = (merchantId: string) =>
  * reasons as `useMerchant`: the detail page should not depend on the list having
  * been visited, and a stale id must resolve to a real 404 rather than an empty page.
  */
+/**
+ * Every share one account still owes another, across every receipt.
+ *
+ * The one dashboard figure that is *not* composed client-side: the split is derived
+ * per receipt from its lines and prorated charges, so folding it in the browser
+ * would mean paging the whole history and reimplementing the arithmetic.
+ */
+export const useOutstandingReimbursements = () =>
+  useQuery({
+    queryKey: queryKeys.reimbursementsOutstanding(),
+    queryFn: async () => (await reimbursementsFindOutstanding({ throwOnError: true })).data,
+  });
+
 export const useTransaction = (id: string) =>
   useQuery({
     queryKey: queryKeys.transaction(id),

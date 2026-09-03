@@ -57,6 +57,8 @@ import type {
   ProductsRemoveResponses,
   ProductsUpdateData,
   ProductsUpdateResponses,
+  ReimbursementsFindOutstandingData,
+  ReimbursementsFindOutstandingResponses,
   TransactionItemsCreateData,
   TransactionItemsCreateResponses,
   TransactionItemsRemoveData,
@@ -651,3 +653,16 @@ export const transactionSettlementsUnsettle = <ThrowOnError extends boolean = fa
       ...options,
     },
   );
+
+/**
+ * Every share still owed from one wallet to another, rolled up per pair of wallets and largest first.
+ */
+export const reimbursementsFindOutstanding = <ThrowOnError extends boolean = false>(
+  options?: Options<ReimbursementsFindOutstandingData, ThrowOnError>,
+): RequestResult<ReimbursementsFindOutstandingResponses, unknown, ThrowOnError> =>
+  (options?.client ?? client).get<ReimbursementsFindOutstandingResponses, unknown, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/reimbursements/outstanding',
+    ...options,
+  });

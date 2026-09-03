@@ -3,13 +3,13 @@
 import { Plus } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
-import { AccountsCard } from '@/components/dashboard/accounts-card';
 import { CategoryBreakdownCard } from '@/components/dashboard/category-breakdown-card';
 import { MonthFlowCard } from '@/components/dashboard/month-flow-card';
 import { MonthSummaryCard } from '@/components/dashboard/month-summary-card';
 import { NetTrendCard } from '@/components/dashboard/net-trend-card';
 import { NetWorthCard } from '@/components/dashboard/net-worth-card';
 import { RecentActivityCard } from '@/components/dashboard/recent-activity-card';
+import { UnreimbursedCard } from '@/components/dashboard/unreimbursed-card';
 import { PageHeader } from '@/components/shell/page-header';
 import { TransactionDialog } from '@/components/transactions/transaction-dialog';
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,7 @@ import {
   useMerchants,
   useMonthExpenses,
   useMonthlySummaries,
+  useOutstandingReimbursements,
   useTransactions,
 } from '@/hooks/use-finance-queries';
 import { currentUtcMonth } from '@/lib/date-range';
@@ -48,6 +49,7 @@ export default function DashboardPage() {
   const monthly = useMonthlySummaries(TREND_MONTHS);
   const expenses = useMonthExpenses(month);
   const recent = useTransactions({ limit: RECENT_LIMIT, offset: 0 });
+  const outstanding = useOutstandingReimbursements();
 
   const days = useMemo(
     () => bucketByUtcDay(expenses.data?.rows ?? [], month, display.currency),
@@ -121,10 +123,15 @@ export default function DashboardPage() {
             isPending={monthly.isPending}
             className="min-w-0 lg:col-span-5"
           />
-          <AccountsCard
-            accounts={accounts.data?.data ?? []}
-            totals={accounts.data?.totalsByCurrency ?? []}
-            isPending={accounts.isPending}
+          {/* Deliberately not in the page-level error gate above: a brand-new
+              endpoint failing must not blank the whole dashboard, so this card
+              carries its own. Per-account balances moved to /accounts, which
+              already lists them. */}
+          <UnreimbursedCard
+            rows={outstanding.data?.data ?? []}
+            totals={outstanding.data?.totalsByCurrency ?? []}
+            isPending={outstanding.isPending}
+            isError={outstanding.isError}
             className="min-w-0 lg:col-span-7"
           />
           <NetTrendCard

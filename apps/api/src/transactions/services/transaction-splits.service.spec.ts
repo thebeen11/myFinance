@@ -56,7 +56,7 @@ describe('TransactionSplitsService', () => {
 
   const prisma = {
     account: { findFirst: jest.fn() },
-    transaction: { findFirst: jest.fn() },
+    transaction: { findFirst: jest.fn(), findMany: jest.fn() },
     transactionSettlement: { findFirst: jest.fn(), delete: jest.fn() },
     $transaction: jest.fn(),
   };
@@ -208,6 +208,163 @@ describe('TransactionSplitsService', () => {
         NotFoundException,
       );
       expect(prisma.transactionSettlement.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('listOutstanding', () => {
+    const GOPAY_ACCOUNT = '55555555-5555-4555-8555-555555555555';
+    const USD_ACCOUNT = '66666666-6666-4666-8666-666666666666';
+
+    /** A receipt paid from Cash, with one line owed by `owedBy`. */
+    const owedReceipt = ({
+      id,
+      occurredAt,
+      owedBy = wifeAccount,
+      lineTotalMinor = 84_000,
+      currency = 'IDR',
+      settlements = [] as unknown[],
+      description = 'Groceries',
+    }: {
+      id: string;
+      occurredAt: string;
+      owedBy?: { id: string; name: string; currency: string };
+      lineTotalMinor?: number;
+      currency?: string;
+      settlements?: unknown[];
+      description?: string | null;
+    }) => ({
+      ...frontedReceipt,
+      id,
+      currency,
+      description,
+      occurredAt: new Date(occurredAt),
+      amountMinor: lineTotalMinor,
+      items: [
+        {
+          lineTotalMinor,
+          category: {
+            id: `c-${owedBy.id}`,
+            name: 'Snacks',
+            kind: CategoryKind.EXPENSE,
+            color: null,
+            account: { id: owedBy.id, name: owedBy.name, currency },
+          },
+        },
+      ],
+      settlements,
+    });
+
+    it("scopes the scan to the caller's own unsettled receipts", async () => {
+      prisma.transaction.findMany.mockResolvedValue([]);
+
+      await service.listOutstanding(USER_ID);
+
+      expect(prisma.transaction.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            userId: USER_ID,
+            type: TransactionType.EXPENSE,
+            settlementId: null,
+          }) as object,
+          orderBy: { occurredAt: 'desc' },
+        }),
+      );
+    });
+
+    it('rolls several receipts up into one row and keeps the oldest date', async () => {
+      prisma.transaction.findMany.mockResolvedValue([
+        owedReceipt({ id: 'r2', occurredAt: '2026-08-20T00:00:00.000Z', lineTotalMinor: 16_000 }),
+        owedReceipt({ id: 'r1', occurredAt: '2026-06-11T00:00:00.000Z', lineTotalMinor: 84_000 }),
+      ]);
+
+      const result = await service.listOutstanding(USER_ID);
+
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0]).toMatchObject({
+        owedAccountId: WIFE_ACCOUNT,
+        owedAccountName: 'Bank BCA',
+        paidByAccountId: PAYER_ACCOUNT,
+        paidByAccountName: 'Cash',
+        currency: 'IDR',
+        owedMinor: 100_000,
+        receiptCount: 2,
+        oldestOccurredAt: '2026-06-11T00:00:00.000Z',
+      });
+      // Newest first, matching the order they were read in.
+      expect(result.data[0].receipts.map((receipt) => receipt.transactionId)).toEqual(['r2', 'r1']);
+      expect(result.totalsByCurrency).toEqual([{ currency: 'IDR', owedMinor: 100_000 }]);
+    });
+
+    it('leaves out a share that has already been reimbursed', async () => {
+      prisma.transaction.findMany.mockResolvedValue([
+        owedReceipt({
+          id: 'r1',
+          occurredAt: '2026-08-20T00:00:00.000Z',
+          settlements: [
+            {
+              id: SETTLEMENT_ID,
+              owedAccountId: WIFE_ACCOUNT,
+              settledMinor: 84_000,
+              settledAt: new Date('2026-08-21T00:00:00.000Z'),
+              postings: [],
+              owedAccount: wifeAccount,
+            },
+          ],
+        }),
+      ]);
+
+      const result = await service.listOutstanding(USER_ID);
+
+      expect(result.data).toEqual([]);
+      expect(result.totalsByCurrency).toEqual([]);
+    });
+
+    it('leaves out a settled debtor edited off the receipt, whose share is now zero', async () => {
+      prisma.transaction.findMany.mockResolvedValue([
+        {
+          ...owedReceipt({ id: 'r1', occurredAt: '2026-08-20T00:00:00.000Z' }),
+          // The line that made GoPay owe is gone; computeSplit keeps the row only so
+          // the postings behind it can still be undone.
+          items: [],
+          settlements: [
+            {
+              id: SETTLEMENT_ID,
+              owedAccountId: GOPAY_ACCOUNT,
+              settledMinor: 10_000,
+              settledAt: new Date('2026-08-21T00:00:00.000Z'),
+              postings: [],
+              owedAccount: { id: GOPAY_ACCOUNT, name: 'GoPay', currency: 'IDR' },
+            },
+          ],
+        },
+      ]);
+
+      const result = await service.listOutstanding(USER_ID);
+
+      expect(result.data).toEqual([]);
+    });
+
+    it('keeps two currencies as two debts, since neither could repay the other', async () => {
+      prisma.transaction.findMany.mockResolvedValue([
+        owedReceipt({ id: 'r1', occurredAt: '2026-08-20T00:00:00.000Z', lineTotalMinor: 84_000 }),
+        owedReceipt({
+          id: 'r2',
+          occurredAt: '2026-08-19T00:00:00.000Z',
+          owedBy: { id: USD_ACCOUNT, name: 'Wise', currency: 'USD' },
+          currency: 'USD',
+          lineTotalMinor: 1_200,
+        }),
+      ]);
+
+      const result = await service.listOutstanding(USER_ID);
+
+      expect(result.data).toHaveLength(2);
+      // Largest first, and the two are never added together.
+      expect(result.data.map((row) => row.currency)).toEqual(['IDR', 'USD']);
+      expect(result.totalsByCurrency).toEqual([
+        { currency: 'IDR', owedMinor: 84_000 },
+        { currency: 'USD', owedMinor: 1_200 },
+      ]);
     });
   });
 });

@@ -54,4 +54,10 @@ export const queryKeys = {
     ['transactions', 'summary', window] as const,
   /** Raw rows for one window, bucketed client-side into a daily series. */
   transactionsDaily: (window: SummaryWindowKey) => ['transactions', 'daily', window] as const,
+  /**
+   * Reimbursements outstanding across every receipt. Keyed under `'transactions'`
+   * despite hanging off its own route: recording or undoing a reimbursement
+   * invalidates the broad `['transactions']` prefix, and this must move with it.
+   */
+  reimbursementsOutstanding: () => ['transactions', 'reimbursements', 'outstanding'] as const,
 };

@@ -3,6 +3,9 @@ import { TransactionType } from '@myfinance/shared';
 
 import { PrismaService } from '../../database/prisma.service';
 import { CreateSettlementDto } from '../models/create-settlement.dto';
+import { OutstandingCurrencyTotalResponse } from '../models/outstanding-currency-total.response';
+import { OutstandingReimbursementResponse } from '../models/outstanding-reimbursement.response';
+import { OutstandingReimbursementsResponse } from '../models/outstanding-reimbursements.response';
 import { TransactionResponse } from '../models/transaction.response';
 
 import { assertNotSettlementPosting } from './assert-not-settlement-posting';
@@ -168,6 +171,92 @@ export class TransactionSplitsService {
   }
 
   /**
+   * Every share still owed, across every receipt, rolled up per pair of wallets.
+   *
+   * The dashboard's question — "who has not paid me back?" — which no per-receipt
+   * read can answer. The split is derived, so there is no debt table to query: the
+   * receipts that could carry someone else's line are loaded and run through the
+   * same `computeSplit` the transaction endpoints use. Reimplementing the
+   * arithmetic here would let this figure disagree with the one on the receipt.
+   *
+   * Deliberately unpaginated: the result is bounded by how many pairs of accounts
+   * have ever shared a receipt, not by how many rows exist.
+   */
+  async listOutstanding(userId: string): Promise<OutstandingReimbursementsResponse> {
+    const receipts = await this.prisma.transaction.findMany({
+      where: {
+        userId,
+        type: TransactionType.EXPENSE,
+        // A settlement posting is the repayment itself, not a receipt to split.
+        settlementId: null,
+        // Only a line filed under a category linked to *some* account can be owed.
+        // Prisma cannot compare that account to the receipt's own, so `computeSplit`
+        // does the exact filtering; this only narrows the scan to receipts that
+        // could possibly qualify.
+        items: { some: { category: { accountId: { not: null } } } },
+      },
+      include: transactionInclude,
+      orderBy: { occurredAt: 'desc' },
+    });
+
+    const rows = new Map<string, OutstandingReimbursementResponse>();
+
+    for (const receipt of receipts) {
+      const split = computeSplit(receipt);
+
+      if (!split) continue;
+
+      for (const debtor of split.debtors) {
+        // A settled share is not owed. A zero share is a settlement that was later
+        // edited off the receipt — `computeSplit` keeps that row so its postings can
+        // still be undone, but it is not a live debt.
+        if (debtor.settlement || debtor.owedMinor <= 0) continue;
+
+        // Currency belongs in the key, not just the payload: `settle` refuses a
+        // cross-currency repayment, so two currencies are two debts.
+        const key = `${debtor.accountId}:${receipt.accountId}:${receipt.currency}`;
+        const occurredAt = receipt.occurredAt.toISOString();
+
+        const row = rows.get(key) ?? {
+          owedAccountId: debtor.accountId,
+          owedAccountName: debtor.accountName,
+          paidByAccountId: receipt.accountId,
+          paidByAccountName: receipt.account.name,
+          currency: receipt.currency,
+          owedMinor: 0,
+          receiptCount: 0,
+          oldestOccurredAt: occurredAt,
+          receipts: [],
+        };
+
+        row.owedMinor += debtor.owedMinor;
+        row.receiptCount += 1;
+        row.receipts.push({
+          transactionId: receipt.id,
+          description: receipt.description,
+          merchantName: receipt.merchant?.name ?? null,
+          occurredAt,
+          owedMinor: debtor.owedMinor,
+        });
+        // Newest first out of the database, so each receipt reached is older than
+        // the last and the final one to land here is the oldest.
+        row.oldestOccurredAt = occurredAt;
+
+        rows.set(key, row);
+      }
+    }
+
+    const data = [...rows.values()].sort(
+      (a, b) =>
+        b.owedMinor - a.owedMinor ||
+        a.owedAccountName.localeCompare(b.owedAccountName) ||
+        a.paidByAccountName.localeCompare(b.paidByAccountName),
+    );
+
+    return { data, totalsByCurrency: this.rollUpByCurrency(data) };
+  }
+
+  /**
    * `findFirst`, not `findUnique`: the id alone is unique, but a lookup that ignores
    * `userId` would happily settle against someone else's wallet.
    */
@@ -179,5 +268,18 @@ export class TransactionSplitsService {
     }
 
     return account;
+  }
+
+  /** One total per currency, in the order the largest debts appear. */
+  private rollUpByCurrency(
+    rows: readonly OutstandingReimbursementResponse[],
+  ): OutstandingCurrencyTotalResponse[] {
+    const totals = new Map<string, number>();
+
+    for (const row of rows) {
+      totals.set(row.currency, (totals.get(row.currency) ?? 0) + row.owedMinor);
+    }
+
+    return [...totals.entries()].map(([currency, owedMinor]) => ({ currency, owedMinor }));
   }
 }

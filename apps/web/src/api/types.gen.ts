@@ -685,6 +685,75 @@ export type CreateSettlementDto = {
   settledAt?: string;
 };
 
+export type OutstandingReceiptResponse = {
+  transactionId: string;
+  /**
+   * What the receipt was described as, if anything.
+   */
+  description: string | null;
+  /**
+   * Where it was paid. The client names a receipt by its description and falls back to this, the same order the transaction list uses.
+   */
+  merchantName: string | null;
+  occurredAt: string;
+  /**
+   * This account's share of this one receipt, in minor units.
+   */
+  owedMinor: number;
+};
+
+export type OutstandingReimbursementResponse = {
+  /**
+   * The wallet that owes.
+   */
+  owedAccountId: string;
+  owedAccountName: string;
+  /**
+   * The wallet that fronted the money.
+   */
+  paidByAccountId: string;
+  paidByAccountName: string;
+  /**
+   * ISO 4217 code of the receipts, which is the paying account's.
+   */
+  currency: string;
+  /**
+   * Sum of the unreimbursed shares, in minor units of `currency`. Derived on every read, so editing a receipt moves it.
+   */
+  owedMinor: number;
+  /**
+   * How many receipts the figure is made of.
+   */
+  receiptCount: number;
+  /**
+   * When the oldest of them was paid.
+   */
+  oldestOccurredAt: string;
+  /**
+   * Newest first.
+   */
+  receipts: Array<OutstandingReceiptResponse>;
+};
+
+export type OutstandingCurrencyTotalResponse = {
+  /**
+   * ISO 4217 code.
+   */
+  currency: string;
+  /**
+   * Integer minor units of `currency`.
+   */
+  owedMinor: number;
+};
+
+export type OutstandingReimbursementsResponse = {
+  /**
+   * Largest debt first.
+   */
+  data: Array<OutstandingReimbursementResponse>;
+  totalsByCurrency: Array<OutstandingCurrencyTotalResponse>;
+};
+
 export type AuthRegisterData = {
   body: RegisterDto;
   path?: never;
@@ -1285,3 +1354,17 @@ export type TransactionSettlementsUnsettleResponses = {
 
 export type TransactionSettlementsUnsettleResponse =
   TransactionSettlementsUnsettleResponses[keyof TransactionSettlementsUnsettleResponses];
+
+export type ReimbursementsFindOutstandingData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/reimbursements/outstanding';
+};
+
+export type ReimbursementsFindOutstandingResponses = {
+  200: OutstandingReimbursementsResponse;
+};
+
+export type ReimbursementsFindOutstandingResponse =
+  ReimbursementsFindOutstandingResponses[keyof ReimbursementsFindOutstandingResponses];

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { ReimbursementsController } from './controllers/reimbursements.controller';
 import { TransactionItemsController } from './controllers/transaction-items.controller';
 import { TransactionSettlementsController } from './controllers/transaction-settlements.controller';
 import { TransactionsController } from './controllers/transactions.controller';
@@ -12,6 +13,7 @@ import { TransactionsService } from './services/transactions.service';
     TransactionsController,
     TransactionItemsController,
     TransactionSettlementsController,
+    ReimbursementsController,
   ],
   providers: [TransactionsService, TransactionItemsService, TransactionSplitsService],
   exports: [TransactionsService],
