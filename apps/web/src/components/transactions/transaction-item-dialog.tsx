@@ -8,9 +8,10 @@ import { Controller, useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
 
-import { transactionItemsCreate, transactionItemsUpdate } from '@/api';
+import { productsCreate, transactionItemsCreate, transactionItemsUpdate } from '@/api';
 import type { CategoryResponse, TransactionItemResponse, TransactionResponse } from '@/api';
 import { CurrencyInput } from '@/components/forms/currency-input';
+import { ProductCombobox } from '@/components/products/product-combobox';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -36,8 +37,8 @@ import { money } from '@/lib/format';
 import { queryKeys } from '@/lib/query-keys';
 
 const schema = z.object({
-  // A bare string, not `.uuid()`: `.uuid()` would reject the "not in the
-  // catalogue" sentinel and make the link mandatory in practice.
+  // A bare string, not `.uuid()`: an empty one is "not in the catalogue", and
+  // `.uuid()` would reject it and make the link mandatory in practice.
   productId: z.string(),
   categoryId: z.string().uuid('Pick a category'),
   name: z.string().min(1, 'Name what was bought').max(160),
@@ -64,9 +65,6 @@ const schema = z.object({
 
 type FormValues = z.input<typeof schema>;
 
-/** A SelectItem value cannot be `''`, so "not in the catalogue" needs a sentinel. */
-const NO_PRODUCT = '__none__';
-
 /**
  * Basis points are the wire format; nobody types "1000" for ten percent. The same
  * pair the charges card keeps locally — a third caller is what should promote them
@@ -92,10 +90,19 @@ interface TransactionItemDialogProps {
 /**
  * One line of a receipt.
  *
- * Picking a product prefills the name, price and category — and then gets out of
+ * The name field *is* the catalogue search: typing filters the merchant's
+ * products, and picking one prefills the price and category — then gets out of
  * the way. Every one of those stays editable, because the line is a snapshot of
  * what was actually bought, not a live view of the catalogue: the shop's price
  * that day and the category you filed it under are properties of the receipt.
+ *
+ * Editing the name after a pick drops the link, so what the box says is what gets
+ * catalogued. A **new** line whose name matches nothing in the catalogue adds
+ * itself to it on save — the catalogue fills itself as receipts are entered,
+ * rather than waiting for someone to remember the bookmark on the row. Editing an
+ * existing line never does: re-saving an old hand-typed line should not quietly
+ * become master data, and promoting it stays the deliberate step that can also
+ * give it a product code.
  *
  * The discount is a **rate**, and only the rate is sent: the API derives the money
  * from it, so editing the quantity later re-applies it instead of leaving a figure
@@ -124,7 +131,7 @@ export const TransactionItemDialog = ({
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
-      productId: NO_PRODUCT,
+      productId: '',
       categoryId: '',
       name: '',
       quantity: 1,
@@ -138,7 +145,7 @@ export const TransactionItemDialog = ({
     if (!open) return;
 
     form.reset({
-      productId: item?.product?.id ?? NO_PRODUCT,
+      productId: item?.product?.id ?? '',
       categoryId: item?.category?.id ?? '',
       name: item?.name ?? '',
       quantity: item?.quantity ?? 1,
@@ -148,23 +155,70 @@ export const TransactionItemDialog = ({
     });
   }, [open, item, transaction.currency, form]);
 
+  const merchantId = transaction.merchant?.id;
+
+  /**
+   * The catalogue id a new, unlinked line should be saved under.
+   *
+   * An exact name match — case and surrounding space aside — links to what is
+   * already there rather than adding a second row saying the same thing. It is
+   * matched against the whole catalogue, not the filtered list: a product hidden
+   * because its category does not suit this receipt is still a duplicate.
+   *
+   * Anything else becomes a new product, priced at the **undiscounted** unit
+   * price, the same shelf-price rule the API applies when it writes a linked
+   * line's price back. No code is set: it is optional, and typing one belongs to
+   * the deliberate promotion the row's bookmark still offers.
+   */
+  const catalogueNewLine = async (name: string, unitPriceMinor: number, categoryId: string) => {
+    if (!merchantId) return { productId: null, created: false, failed: false };
+
+    const existing = (products.data ?? []).find(
+      (product) => product.name.trim().toLowerCase() === name.trim().toLowerCase(),
+    );
+
+    if (existing) return { productId: existing.id, created: false, failed: false };
+
+    try {
+      const created = await productsCreate({
+        body: { merchantId, categoryId, name, lastPriceMinor: unitPriceMinor },
+        throwOnError: true,
+      });
+
+      return { productId: created.data.id, created: true, failed: false };
+    } catch {
+      // The line is what the user came here to save; losing it because the
+      // catalogue write failed would be the worse outcome. Save it unlinked and
+      // say so — the two calls are not atomic and the toast should not pretend.
+      return { productId: null, created: false, failed: true };
+    }
+  };
+
   const mutation = useMutation({
     mutationFn: async (values: FormValues) => {
       const parsed = schema.parse(values);
+      const unitPriceMinor = toMinor(parsed.unitPrice, transaction.currency);
+
+      // Only a new line, only when nothing was picked, and only where there is a
+      // merchant to file it under.
+      const catalogued =
+        !item && !parsed.productId && merchantId
+          ? await catalogueNewLine(parsed.name, unitPriceMinor, parsed.categoryId)
+          : { productId: parsed.productId || null, created: false, failed: false };
 
       const body = {
         // null, not undefined: the API reads undefined as "leave it alone", so
         // unlinking a line from the catalogue needs an explicit null.
-        productId: parsed.productId === NO_PRODUCT ? null : parsed.productId,
+        productId: catalogued.productId,
         categoryId: parsed.categoryId,
         name: parsed.name,
         quantity: parsed.quantity,
-        unitPriceMinor: toMinor(parsed.unitPrice, transaction.currency),
+        unitPriceMinor,
         // The rate is all that is sent; the API derives the money from it.
         discountBasisPoints: toBasisPoints(parsed.discountPercent),
       };
 
-      return item
+      await (item
         ? transactionItemsUpdate({
             path: { transactionId: transaction.id, itemId: item.id },
             body,
@@ -174,19 +228,29 @@ export const TransactionItemDialog = ({
             path: { transactionId: transaction.id },
             body,
             throwOnError: true,
-          });
+          }));
+
+      return catalogued;
     },
-    onSuccess: async () => {
+    onSuccess: async (catalogued) => {
       await queryClient.invalidateQueries({ queryKey: ['transactions'] });
       await queryClient.invalidateQueries({ queryKey: ['accounts'] });
       // A linked line writes its price back to the product it came from.
       await queryClient.invalidateQueries({ queryKey: queryKeys.categories() });
-      if (transaction.merchant) {
+      if (merchantId) {
+        // The broad prefix once a product was added: a new row moves the
+        // merchant's own `productCount`, and the catalogue key sits under it.
         await queryClient.invalidateQueries({
-          queryKey: queryKeys.products(transaction.merchant.id),
+          queryKey: catalogued.created ? queryKeys.merchants() : queryKeys.products(merchantId),
         });
       }
-      toast.success(item ? 'Line updated' : 'Line added');
+
+      if (catalogued.failed) {
+        toast.warning('Line added, but it could not be added to the catalogue.');
+      } else {
+        toast.success(item ? 'Line updated' : 'Line added');
+      }
+
       onOpenChange(false);
     },
     onError: (error: unknown) => {
@@ -205,9 +269,22 @@ export const TransactionItemDialog = ({
   );
 
   // `useWatch`, not `form.watch()` — the React Compiler lint rule rejects the latter.
+  const productId = useWatch({ control: form.control, name: 'productId' });
   const quantity = useWatch({ control: form.control, name: 'quantity' });
   const unitPrice = useWatch({ control: form.control, name: 'unitPrice' });
   const discountPercent = useWatch({ control: form.control, name: 'discountPercent' });
+
+  const linkedProduct = selectableProducts.find((product) => product.id === productId);
+
+  // Says what saving will do to the catalogue, because the field now decides it:
+  // a pick links, typed text does not, and a new line's typed text is added.
+  const catalogueHint = !transaction.merchant
+    ? 'Set a merchant on this transaction to pick from its catalogue.'
+    : linkedProduct
+      ? `Linked to ${linkedProduct.code ? `${linkedProduct.code} · ` : ''}${linkedProduct.name} in ${transaction.merchant.name}'s catalogue.`
+      : item
+        ? 'Not in the catalogue.'
+        : 'Not in the catalogue — it will be added when you save.';
 
   const grossMinor = toMinor(
     (Number.isFinite(quantity) ? quantity : 0) * (unitPrice ?? 0),
@@ -259,60 +336,40 @@ export const TransactionItemDialog = ({
           onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
         >
           <div className="grid gap-2">
-            <Label htmlFor="productId">Product</Label>
+            <Label htmlFor="name">Name</Label>
             <Controller
               control={form.control}
-              name="productId"
+              name="name"
               render={({ field }) => (
-                <Select
+                <ProductCombobox
+                  id="name"
+                  placeholder="Indomie Goreng"
                   value={field.value}
-                  onValueChange={(value) => {
-                    field.onChange(value);
-
+                  onBlur={field.onBlur}
+                  products={selectableProducts}
+                  onValueChange={(name) => {
+                    field.onChange(name);
+                    // Typed text wins over the pick it replaces: what the box says
+                    // is what gets catalogued.
+                    form.setValue('productId', '');
+                  }}
+                  onSelectProduct={(picked) => {
                     // Prefill from the catalogue, then leave it alone — these are
                     // starting points for a snapshot, not a live binding.
-                    const picked = selectableProducts.find((product) => product.id === value);
-                    if (!picked) return;
-
-                    form.setValue('name', picked.name);
+                    field.onChange(picked.name);
+                    form.setValue('productId', picked.id);
                     form.setValue('unitPrice', fromMinor(picked.lastPriceMinor, picked.currency));
                     if (picked.category) form.setValue('categoryId', picked.category.id);
                   }}
-                  disabled={!transaction.merchant}
-                >
-                  <SelectTrigger id="productId" className="w-full">
-                    <SelectValue placeholder="Not in the catalogue" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NO_PRODUCT}>Not in the catalogue</SelectItem>
-                    {selectableProducts.map((product) => (
-                      <SelectItem key={product.id} value={product.id}>
-                        {product.code ? `${product.code} · ` : ''}
-                        {product.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  aria-invalid={Boolean(form.formState.errors.name)}
+                />
               )}
-            />
-            <p className="text-muted-foreground text-xs">
-              {transaction.merchant
-                ? 'Optional. Picking one fills in the rest, which you can still change.'
-                : 'Set a merchant on this transaction to pick from its catalogue.'}
-            </p>
-          </div>
-
-          <div className="grid gap-2">
-            <Label htmlFor="name">Name</Label>
-            <Input
-              id="name"
-              placeholder="Indomie Goreng"
-              autoComplete="off"
-              {...form.register('name')}
             />
             {form.formState.errors.name ? (
               <p className="text-destructive text-xs">{form.formState.errors.name.message}</p>
-            ) : null}
+            ) : (
+              <p className="text-muted-foreground text-xs">{catalogueHint}</p>
+            )}
           </div>
 
           <div className="grid gap-2">
