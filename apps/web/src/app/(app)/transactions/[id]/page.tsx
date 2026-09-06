@@ -52,7 +52,7 @@ import {
   useMerchants,
   useTransaction,
 } from '@/hooks/use-finance-queries';
-import { money, shortDate } from '@/lib/format';
+import { money, quantityText, shortDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 /** Names both collections the expense total is derived from, skipping either when empty. */
@@ -296,7 +296,8 @@ export default function TransactionDetailPage() {
                       }
                       subtitle={
                         <>
-                          {item.quantity} × {money(item.unitPriceMinor, receipt?.currency ?? 'IDR')}
+                          {quantityText(item.quantityMilli)} ×{' '}
+                          {money(item.unitPriceMinor, receipt?.currency ?? 'IDR')}
                           {item.discountMinor > 0
                             ? ` · −${money(item.discountMinor, receipt?.currency ?? 'IDR')}`
                             : ''}
@@ -407,7 +408,7 @@ export default function TransactionDetailPage() {
                       ) : null}
                     </TableCell>
                     <TableCell className="text-muted-foreground text-right tabular-nums">
-                      {item.quantity}
+                      {quantityText(item.quantityMilli)}
                     </TableCell>
                     <TableCell className="text-muted-foreground text-right tabular-nums">
                       {money(item.unitPriceMinor, receipt?.currency ?? 'IDR')}

@@ -5,8 +5,12 @@ import {
   basisPointsToPercent,
   cascadeDiscounts,
   fromMinor,
+  fromQuantityMilli,
+  lineGrossMinor,
   percentToBasisPoints,
+  QUANTITY_FRACTION_DIGITS,
   toMinor,
+  toQuantityMilli,
 } from '@myfinance/shared';
 import { AlertTriangle, ChevronDown, Trash2 } from 'lucide-react';
 import { useState } from 'react';
@@ -20,6 +24,7 @@ import type {
   ReceiptDraftResponse,
 } from '@/api';
 import { CurrencyInput } from '@/components/forms/currency-input';
+import { DecimalInput } from '@/components/forms/decimal-input';
 import { MerchantField, NO_MERCHANT } from '@/components/merchants/merchant-field';
 import {
   LineDiscountsField,
@@ -39,7 +44,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { categoriesOfKind, noCategoriesOfKindReason } from '@/lib/category-selection';
-import { dateInputValue, money } from '@/lib/format';
+import { dateInputValue, money, quantityText } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 /**
@@ -60,7 +65,9 @@ const schema = z.object({
         // `''` is "nothing picked yet"; the refinement below is what requires it.
         categoryId: z.string(),
         name: z.string().min(1, 'Name the line'),
-        quantity: z.number().int().min(1),
+        // Fractional: a weighed line is "1,5 KG x 40.000", and the draft has to
+        // be able to hold what the scanner read off the receipt.
+        quantity: z.number().min(0.001),
         /** Major units, as typed. `undefined` is an empty field, not zero. */
         unitPrice: z.number().optional(),
         discounts: z.array(
@@ -118,7 +125,7 @@ export const ReceiptDraftReview = ({
         productId: line.productId ?? null,
         categoryId: line.categoryId ?? '',
         name: line.name,
-        quantity: line.quantity,
+        quantity: fromQuantityMilli(line.quantityMilli),
         unitPrice: fromMinor(line.unitPriceMinor, currency),
         discounts: toDiscountRows(line.discounts, currency),
       })),
@@ -161,8 +168,8 @@ export const ReceiptDraftReview = ({
   // through the running total and render the reconciliation as "NaN" — the one
   // figure on this screen the reviewer is meant to be able to trust.
   const lineTotalMinor = (line: FormValues['lines'][number]): number => {
-    const quantity = Number.isFinite(line.quantity) ? line.quantity : 0;
-    const grossMinor = quantity * toMinor(line.unitPrice ?? 0, currency);
+    const quantityMilli = Number.isFinite(line.quantity) ? toQuantityMilli(line.quantity) : 0;
+    const grossMinor = lineGrossMinor(quantityMilli, toMinor(line.unitPrice ?? 0, currency));
 
     // The same helper the API cascades with, so a corrected line reconciles
     // against the printed total the way the saved receipt will.
@@ -192,7 +199,7 @@ export const ReceiptDraftReview = ({
         productId: line.productId,
         categoryId: line.categoryId,
         name: line.name,
-        quantity: line.quantity,
+        quantityMilli: toQuantityMilli(line.quantity),
         unitPriceMinor: toMinor(line.unitPrice ?? 0, currency),
         discounts: toDiscountBodies(line.discounts, currency),
       })),
@@ -276,8 +283,10 @@ export const ReceiptDraftReview = ({
                       {values.name || `Line ${index + 1}`}
                     </span>
                     <span className="text-muted-foreground block truncate text-xs">
-                      {values.quantity} ×{' '}
-                      {money(toMinor(values.unitPrice ?? 0, currency), currency)}
+                      {Number.isFinite(values.quantity)
+                        ? quantityText(toQuantityMilli(values.quantity))
+                        : '—'}{' '}
+                      × {money(toMinor(values.unitPrice ?? 0, currency), currency)}
                       {values.categoryId ? '' : ' · needs a category'}
                     </span>
                   </span>
@@ -307,12 +316,22 @@ export const ReceiptDraftReview = ({
                     <Label htmlFor={`line-qty-${index}`} className="text-xs">
                       Qty
                     </Label>
-                    <Input
-                      id={`line-qty-${index}`}
-                      type="number"
-                      min={1}
-                      className="text-right tabular-nums"
-                      {...form.register(`lines.${index}.quantity`, { valueAsNumber: true })}
+                    {/* Not a number input: a weight is typed "1,5", which a browser
+                      whose locale uses a dot would reject outright. */}
+                    <Controller
+                      control={form.control}
+                      name={`lines.${index}.quantity`}
+                      render={({ field: qtyField }) => (
+                        <DecimalInput
+                          id={`line-qty-${index}`}
+                          fractionDigits={QUANTITY_FRACTION_DIGITS}
+                          minFractionDigits={0}
+                          name={qtyField.name}
+                          value={qtyField.value}
+                          onChange={qtyField.onChange}
+                          onBlur={qtyField.onBlur}
+                        />
+                      )}
                     />
                   </div>
 

@@ -33,8 +33,12 @@ export class ReceiptDraftLineResponse {
   @ApiProperty({ example: 'Indomie Goreng' })
   name!: string;
 
-  @ApiProperty({ example: 2, minimum: 1 })
-  quantity!: number;
+  @ApiProperty({
+    example: 1_500,
+    minimum: 1,
+    description: 'Thousandths of a unit — a weighed 1.5 kg line is 1500.',
+  })
+  quantityMilli!: number;
 
   @ApiProperty({ example: 3_500, description: "Per unit, in the account's minor units." })
   unitPriceMinor!: number;
@@ -53,8 +57,7 @@ export class ReceiptDraftLineResponse {
 
   @ApiProperty({
     example: 41_800,
-    description:
-      'quantity × unitPriceMinor less the discounts, derived the same way a saved line is.',
+    description: 'The quantity at the unit price less the discounts, as a saved line derives it.',
   })
   lineTotalMinor!: number;
 }

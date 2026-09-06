@@ -385,7 +385,10 @@ export type TransactionItemProductResponse = {
 export type TransactionItemResponse = {
   id: string;
   name: string;
-  quantity: number;
+  /**
+   * Thousandths of a unit — 1.5 kg is 1500, two tins are 2000.
+   */
+  quantityMilli: number;
   unitPriceMinor: number;
   /**
    * Every discount off this line, in the order they cascade.
@@ -400,7 +403,7 @@ export type TransactionItemResponse = {
    */
   discountMinor: number;
   /**
-   * quantity × unitPriceMinor − discountMinor.
+   * The quantity at the unit price, less discountMinor.
    */
   lineTotalMinor: number;
   /**
@@ -672,7 +675,10 @@ export type CreateTransactionItemDto = {
    */
   categoryId: string;
   name: string;
-  quantity: number;
+  /**
+   * Thousandths of a unit — 1.5 kg is 1500, two tins are 2000.
+   */
+  quantityMilli: number;
   /**
    * Price for one unit, in minor units of the transaction's currency.
    */
@@ -708,7 +714,10 @@ export type UpdateTransactionItemDto = {
    */
   categoryId?: string;
   name?: string;
-  quantity?: number;
+  /**
+   * Thousandths of a unit — 1.5 kg is 1500, two tins are 2000.
+   */
+  quantityMilli?: number;
   /**
    * Price for one unit, in minor units of the transaction's currency.
    */
@@ -854,7 +863,10 @@ export type ReceiptDraftLineResponse = {
   categoryId?: string | null;
   categoryName?: string | null;
   name: string;
-  quantity: number;
+  /**
+   * Thousandths of a unit — a weighed 1.5 kg line is 1500.
+   */
+  quantityMilli: number;
   /**
    * Per unit, in the account's minor units.
    */
@@ -868,7 +880,7 @@ export type ReceiptDraftLineResponse = {
    */
   discountBasisPoints: number;
   /**
-   * quantity × unitPriceMinor less the discounts, derived the same way a saved line is.
+   * The quantity at the unit price less the discounts, as a saved line derives it.
    */
   lineTotalMinor: number;
 };

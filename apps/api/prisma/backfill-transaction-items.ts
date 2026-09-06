@@ -51,7 +51,7 @@ const main = async (): Promise<void> => {
       productId: null,
       categoryId: transaction.categoryId,
       name: transaction.description ?? 'Transaction',
-      quantity: 1,
+      quantityMilli: 1_000,
       unitPriceMinor: transaction.amountMinor,
       lineTotalMinor: transaction.amountMinor,
       position: 0,

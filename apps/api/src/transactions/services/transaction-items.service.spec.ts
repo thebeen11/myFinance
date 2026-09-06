@@ -49,7 +49,7 @@ const storedItem = {
   productId: null,
   categoryId: CATEGORY_ID,
   name: 'Indomie Goreng',
-  quantity: 2,
+  quantityMilli: 2_000,
   unitPriceMinor: 3_500,
   discountBasisPoints: 0,
   discountMinor: 0,
@@ -70,7 +70,7 @@ const discountedItem = {
 /** The 55_000 line from the receipt this feature was built for: 20% then 5%. */
 const stackedItem = {
   ...storedItem,
-  quantity: 1,
+  quantityMilli: 1_000,
   unitPriceMinor: 55_000,
   discountBasisPoints: 2_400,
   discountMinor: 13_200,
@@ -84,7 +84,7 @@ const stackedItem = {
 const createDto = {
   categoryId: CATEGORY_ID,
   name: 'Indomie Goreng',
-  quantity: 2,
+  quantityMilli: 2_000,
   unitPriceMinor: 3_500,
 };
 
@@ -182,7 +182,7 @@ describe('TransactionItemsService', () => {
     it('re-derives the parent total when a line is edited', async () => {
       armHappyPath();
 
-      await service.update(USER_ID, TRANSACTION_ID, ITEM_ID, { quantity: 3 });
+      await service.update(USER_ID, TRANSACTION_ID, ITEM_ID, { quantityMilli: 3_000 });
 
       expect(transactionsService.recomputeTotal).toHaveBeenCalledWith(tx, TRANSACTION_ID);
     });
@@ -202,12 +202,53 @@ describe('TransactionItemsService', () => {
     it('recomputes the line total when only the quantity changes', async () => {
       armHappyPath();
 
-      await service.update(USER_ID, TRANSACTION_ID, ITEM_ID, { quantity: 3 });
+      await service.update(USER_ID, TRANSACTION_ID, ITEM_ID, { quantityMilli: 3_000 });
 
       expect(tx.transactionItem.update).toHaveBeenCalledWith(
         expect.objectContaining({
           // 3 × the stored 3_500, not 3 × whatever the dto happened to carry.
           data: expect.objectContaining({ lineTotalMinor: 10_500 }) as object,
+        }),
+      );
+    });
+
+    it('prices a weighed line at what the receipt says', async () => {
+      armHappyPath();
+
+      // The case this scale was added for: 1.5 kg of watermelon at Rp 40.000/kg,
+      // which used to have to be typed as one unit at Rp 60.000 — a price that is
+      // not the shelf price, and which `syncLastPrice` would then catalogue as one.
+      await service.create(USER_ID, TRANSACTION_ID, {
+        ...createDto,
+        name: 'Semangka',
+        quantityMilli: 1_500,
+        unitPriceMinor: 40_000,
+      });
+
+      expect(tx.transactionItem.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            quantityMilli: 1_500,
+            unitPriceMinor: 40_000,
+            lineTotalMinor: 60_000,
+          }) as object,
+        }),
+      );
+    });
+
+    it('carries a three-decimal weight into the line total', async () => {
+      armHappyPath();
+
+      // 0.825 kg at Rp 12.000/kg. The division happens last, so the gram survives.
+      await service.create(USER_ID, TRANSACTION_ID, {
+        ...createDto,
+        quantityMilli: 825,
+        unitPriceMinor: 12_000,
+      });
+
+      expect(tx.transactionItem.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ lineTotalMinor: 9_900 }) as object,
         }),
       );
     });
@@ -251,7 +292,7 @@ describe('TransactionItemsService', () => {
       // off the 44_000 that leaves (2_200) — not 5% of 55_000, which is 2_750.
       await service.create(USER_ID, TRANSACTION_ID, {
         ...createDto,
-        quantity: 1,
+        quantityMilli: 1_000,
         unitPriceMinor: 55_000,
         discounts: [
           { name: 'Product', basisPoints: 2_000 },
@@ -296,7 +337,7 @@ describe('TransactionItemsService', () => {
       // 55_000 less a 5_000 voucher is 50_000; 10% of that is 5_000.
       await service.create(USER_ID, TRANSACTION_ID, {
         ...createDto,
-        quantity: 1,
+        quantityMilli: 1_000,
         unitPriceMinor: 55_000,
         discounts: [{ name: 'Voucher', amountMinor: 5_000 }, { basisPoints: 1_000 }],
       });
@@ -353,7 +394,7 @@ describe('TransactionItemsService', () => {
 
       // The whole point of deriving rather than storing the money: a stale 11_000
       // here would describe the price this line used to be.
-      await service.update(USER_ID, TRANSACTION_ID, ITEM_ID, { quantity: 2 });
+      await service.update(USER_ID, TRANSACTION_ID, ITEM_ID, { quantityMilli: 2_000 });
 
       expect(tx.transactionItem.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -398,7 +439,7 @@ describe('TransactionItemsService', () => {
 
       // A voucher is off the line, not off a unit: doubling the quantity doubles
       // the gross and leaves the 1_000 alone.
-      await service.update(USER_ID, TRANSACTION_ID, ITEM_ID, { quantity: 4 });
+      await service.update(USER_ID, TRANSACTION_ID, ITEM_ID, { quantityMilli: 4_000 });
 
       expect(tx.transactionItem.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -416,7 +457,7 @@ describe('TransactionItemsService', () => {
       // 7% of 6_500 is 455, and IDR has no minor unit to hide the remainder in.
       await service.create(USER_ID, TRANSACTION_ID, {
         ...createDto,
-        quantity: 1,
+        quantityMilli: 1_000,
         unitPriceMinor: 6_500,
         discounts: [{ basisPoints: 700 }],
       });
@@ -714,7 +755,7 @@ describe('TransactionItemsService', () => {
       prisma.transaction.findFirst.mockResolvedValue(income);
 
       await expect(
-        service.update(USER_ID, TRANSACTION_ID, ITEM_ID, { quantity: 2 }),
+        service.update(USER_ID, TRANSACTION_ID, ITEM_ID, { quantityMilli: 2_000 }),
       ).rejects.toBeInstanceOf(BadRequestException);
       expect(prisma.$transaction).not.toHaveBeenCalled();
     });
@@ -783,7 +824,7 @@ describe('TransactionItemsService', () => {
 
       await service.createManyInTransaction(txClient, USER_ID, transaction, [
         line({
-          quantity: 1,
+          quantityMilli: 1_000,
           unitPriceMinor: 55_000,
           discounts: [{ name: 'Product', basisPoints: 2_000 }, { basisPoints: 500 }],
         }),

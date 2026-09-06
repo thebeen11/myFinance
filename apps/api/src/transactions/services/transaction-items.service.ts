@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { TransactionType, cascadeDiscounts } from '@myfinance/shared';
+import { TransactionType, cascadeDiscounts, lineGrossMinor } from '@myfinance/shared';
 import type { LineDiscountInput } from '@myfinance/shared';
 
 import { PrismaService } from '../../database/prisma.service';
@@ -78,7 +78,7 @@ export class TransactionItemsService {
 
     const { discountRows, ...totals } = this.deriveTotals(
       dto.name,
-      dto.quantity,
+      dto.quantityMilli,
       dto.unitPriceMinor,
       this.normaliseDiscounts(dto.name, dto.discounts ?? []),
     );
@@ -97,7 +97,7 @@ export class TransactionItemsService {
           productId: product?.id ?? null,
           categoryId: category.id,
           name: dto.name,
-          quantity: dto.quantity,
+          quantityMilli: dto.quantityMilli,
           unitPriceMinor: dto.unitPriceMinor,
           ...totals,
           position: (last?.position ?? -1) + 1,
@@ -159,7 +159,7 @@ export class TransactionItemsService {
       id: randomUUID(),
       ...this.deriveTotals(
         dto.name,
-        dto.quantity,
+        dto.quantityMilli,
         dto.unitPriceMinor,
         this.normaliseDiscounts(dto.name, dto.discounts ?? []),
       ),
@@ -176,7 +176,7 @@ export class TransactionItemsService {
           productId: dto.productId ?? null,
           categoryId: categories.get(dto.categoryId)?.id ?? null,
           name: dto.name,
-          quantity: dto.quantity,
+          quantityMilli: dto.quantityMilli,
           unitPriceMinor: dto.unitPriceMinor,
           discountBasisPoints,
           discountMinor,
@@ -228,7 +228,7 @@ export class TransactionItemsService {
     // or the stored discounts would describe the price it used to be. An absent
     // array leaves them alone; an empty one clears them.
     const name = dto.name ?? existing.name;
-    const quantity = dto.quantity ?? existing.quantity;
+    const quantityMilli = dto.quantityMilli ?? existing.quantityMilli;
     const unitPriceMinor = dto.unitPriceMinor ?? existing.unitPriceMinor;
     const discounts = dto.discounts
       ? this.normaliseDiscounts(name, dto.discounts)
@@ -236,7 +236,7 @@ export class TransactionItemsService {
 
     const { discountRows, ...totals } = this.deriveTotals(
       name,
-      quantity,
+      quantityMilli,
       unitPriceMinor,
       discounts,
     );
@@ -249,7 +249,7 @@ export class TransactionItemsService {
           productId: dto.productId,
           categoryId: category?.id,
           name: dto.name,
-          quantity,
+          quantityMilli,
           unitPriceMinor,
           ...totals,
           // Replaced wholesale rather than diffed: the rows are a list whose order
@@ -299,11 +299,11 @@ export class TransactionItemsService {
    */
   private deriveTotals(
     name: string,
-    quantity: number,
+    quantityMilli: number,
     unitPriceMinor: number,
     discounts: NormalisedDiscount[],
   ): DerivedLine {
-    const cascaded = cascadeDiscounts(quantity * unitPriceMinor, discounts);
+    const cascaded = cascadeDiscounts(lineGrossMinor(quantityMilli, unitPriceMinor), discounts);
 
     if (cascaded.lineTotalMinor < 0) {
       throw new BadRequestException(

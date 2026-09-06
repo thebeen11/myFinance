@@ -43,19 +43,24 @@ const PROMPT = [
   '   no thousands separators, no "Rp".',
   '2. unitPrice is the price of ONE unit. If the receipt prints only a line total, divide it',
   '   by the quantity. If it prints both, take the per-unit figure.',
-  '3. Tax, service charge, delivery, packaging, rounding and any other amount that was paid',
+  '3. quantity MAY BE FRACTIONAL. Anything sold by weight or volume prints the measure and a',
+  '   price per kilo or per litre: "SEMANGKA 1,5 KG x 40.000 = 60.000" is quantity 1.5 and',
+  '   unitPrice 40000 — never quantity 1 at 60000, and never quantity 2. Read "1,5" as one',
+  '   and a half (rule 1: the comma is the decimal separator). Keep up to three decimals,',
+  '   so "0,825 KG" is 0.825. When the receipt prints no quantity at all, return 1.',
+  '4. Tax, service charge, delivery, packaging, rounding and any other amount that was paid',
   '   but not bought belongs in "charges", never in "lines". Things the shop sells go in',
   '   "lines".',
-  '4. "discounts" lists every promotion printed under a single line, in the order printed —',
+  '5. "discounts" lists every promotion printed under a single line, in the order printed —',
   '   a product promo and a member discount on the same line are two entries. Give each one',
   '   either "percent" (10% is 10) or "amount" (the figure as printed), whichever the',
   '   receipt shows, and null for the other. Use "name" for the label beside it. An empty',
   '   array when the line has none. A discount printed as a lump sum off the whole bill is',
   '   not a line discount — leave it out and it will be reconciled against the total.',
-  '5. "grandTotal" is the final total the receipt itself prints, after everything.',
-  '6. If a field is creased, cut off or unreadable, return null. Do not guess, do not',
+  '6. "grandTotal" is the final total the receipt itself prints, after everything.',
+  '7. If a field is creased, cut off or unreadable, return null. Do not guess, do not',
   '   invent lines, and do not include a line you cannot read a price for.',
-  '7. "purchasedOn" is the transaction date as YYYY-MM-DD.',
+  '8. "purchasedOn" is the transaction date as YYYY-MM-DD.',
 ].join('\n');
 
 /**
@@ -77,7 +82,12 @@ const RESPONSE_SCHEMA = {
         properties: {
           code: { type: ['string', 'null'] },
           name: { type: 'string' },
-          quantity: { type: 'number' },
+          // Spelled out here as well as in the prompt: an integer is what a model
+          // reaches for by default, and a weighed line is exactly where that is wrong.
+          quantity: {
+            type: 'number',
+            description: 'May be fractional for weighed or measured goods — 1.5 kg is 1.5.',
+          },
           unitPrice: { type: 'number' },
           discounts: {
             type: 'array',
@@ -208,9 +218,11 @@ const toLine = (value: unknown): ExtractedLine | undefined => {
   return {
     code: asText(value.code),
     name,
-    // A fractional quantity is a weighed item ("0.82 kg"); the schema has no room
-    // for it, so the weight folds into the price and the line reads as one of them.
-    quantity: quantity && quantity >= 1 ? Math.round(quantity) : 1,
+    // A fractional quantity is a weighed item ("0.825 kg") and is kept as read —
+    // a line stores thousandths of a unit, so the weight no longer has to fold
+    // into the price. Anything below half a gram would scale to zero and post a
+    // free line, so that reads as "no quantity printed" and falls back to one.
+    quantity: quantity !== null && quantity >= 0.001 ? quantity : 1,
     unitPrice,
     discounts: asArray(value.discounts).map(toDiscount).filter(isPresent),
   };

@@ -25,8 +25,13 @@ export interface ExtractedLine {
   /** The shop's own SKU, when the receipt prints one beside the name. */
   code: string | null;
   name: string;
+  /**
+   * In whole units as printed, and **fractional for anything sold by weight or
+   * volume** — 1.5 kg of watermelon is `1.5`, against a per-kilo `unitPrice`.
+   * `ReceiptScanService` scales it to the thousandths a line stores.
+   */
   quantity: number;
-  /** Per unit, not the line total. */
+  /** Per unit — per kilo, per litre — not the line total. */
   unitPrice: number;
   /** Every discount printed under this line, in the order printed. */
   discounts: ExtractedDiscount[];

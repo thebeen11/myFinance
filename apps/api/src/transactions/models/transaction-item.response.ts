@@ -18,8 +18,11 @@ export class TransactionItemResponse {
   @ApiProperty({ example: 'Indomie Goreng' })
   name!: string;
 
-  @ApiProperty({ example: 2 })
-  quantity!: number;
+  @ApiProperty({
+    example: 1_500,
+    description: 'Thousandths of a unit — 1.5 kg is 1500, two tins are 2000.',
+  })
+  quantityMilli!: number;
 
   @ApiProperty({ example: 3500 })
   unitPriceMinor!: number;
@@ -44,7 +47,10 @@ export class TransactionItemResponse {
   })
   discountMinor!: number;
 
-  @ApiProperty({ example: 41_800, description: 'quantity × unitPriceMinor − discountMinor.' })
+  @ApiProperty({
+    example: 41_800,
+    description: 'The quantity at the unit price, less discountMinor.',
+  })
   lineTotalMinor!: number;
 
   @ApiProperty({ description: 'Order on the receipt.' })

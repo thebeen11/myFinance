@@ -296,7 +296,13 @@ model TransactionItem {
   categoryId    String? @db.Uuid
 
   name                String
-  quantity            Int    @default(1)
+  /// Thousandths of a unit — two tins is 2_000, 1.5 kg of watermelon is 1_500.
+  ///
+  /// An integer for the same reason money is one: a stored 0.1 drifts, and this
+  /// number is multiplied by a price. Three decimals because that is what a shop
+  /// scale prints — grams against a per-kilo price. `lineGrossMinor` in
+  /// @myfinance/shared is the only place the two scales are allowed to meet.
+  quantityMilli       Int    @default(1000)
   unitPriceMinor      Int
   /// What the whole discount cascade comes to as one rate — 10% is 1000. Zero is
   /// "no discount".
@@ -310,8 +316,9 @@ model TransactionItem {
   /// The sum of this line's discount rows, computed by the API alongside
   /// lineTotalMinor so the parts and the whole can never disagree.
   discountMinor       Int    @default(0)
-  /// quantity * unitPriceMinor - discountMinor, computed by the API so the parts
-  /// and the whole can never disagree.
+  /// What the line is worth: `lineGrossMinor(quantityMilli, unitPriceMinor)` less
+  /// discountMinor, computed by the API so the parts and the whole can never
+  /// disagree.
   lineTotalMinor      Int
   /// Position on the receipt, so re-reading a transaction gives a stable order.
   position            Int

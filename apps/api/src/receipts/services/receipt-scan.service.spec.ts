@@ -132,6 +132,33 @@ describe('ReceiptScanService', () => {
   });
 
   describe('line money', () => {
+    it('keeps a weighed quantity as printed and scales it to thousandths', async () => {
+      readReceiptMock.mockResolvedValue(
+        extracted({
+          lines: [
+            {
+              code: null,
+              name: 'Semangka',
+              // 1,5 KG x 40.000 — the model reads printed units, the draft stores
+              // thousandths, and the weight no longer folds into the price.
+              quantity: 1.5,
+              unitPrice: 40000,
+              discounts: [],
+            },
+          ],
+          grandTotal: 60000,
+        }),
+      );
+
+      const draft = await service.scan(USER_ID, dto);
+
+      expect(draft.lines[0].quantityMilli).toBe(1_500);
+      expect(draft.lines[0].unitPriceMinor).toBe(40_000);
+      expect(draft.lines[0].lineTotalMinor).toBe(60_000);
+      // The reviewer's reconciliation only holds if the weight survived.
+      expect(draft.derivedTotalMinor).toBe(draft.printedTotalMinor);
+    });
+
     it('applies a discount as a rate and derives the net line total from it', async () => {
       readReceiptMock.mockResolvedValue(
         extracted({
