@@ -18,7 +18,9 @@ const TRANSACTION_ID = '44444444-4444-4444-8444-444444444444';
 const dto = (overrides: Partial<CreateReceiptDto> = {}): CreateReceiptDto => ({
   accountId: ACCOUNT_ID,
   occurredAt: '2026-08-10T00:00:00.000Z',
-  items: [{ categoryId: CATEGORY_ID, name: 'Indomie Goreng', quantity: 2, unitPriceMinor: 3500 }],
+  items: [
+    { categoryId: CATEGORY_ID, name: 'Indomie Goreng', quantityMilli: 2_000, unitPriceMinor: 3500 },
+  ],
   ...overrides,
 });
 

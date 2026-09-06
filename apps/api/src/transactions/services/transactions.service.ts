@@ -644,7 +644,7 @@ export class TransactionsService {
       items: transaction.items.map((item) => ({
         id: item.id,
         name: item.name,
-        quantity: item.quantity,
+        quantityMilli: item.quantityMilli,
         unitPriceMinor: item.unitPriceMinor,
         discounts: item.discounts.map((discount) => ({
           id: discount.id,

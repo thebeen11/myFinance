@@ -1,13 +1,16 @@
-import { getCurrencyFractionDigits } from '@myfinance/shared';
-
 import { MONEY_LOCALE } from './format';
 
 /**
- * Entering money, as opposed to rendering it (`format.ts`).
+ * Entering a decimal number in this app's locale — money, a weight, anything
+ * with a fixed number of places.
  *
  * All of it is pure — a keystroke goes in, the field's next text, caret and
  * numeric value come out — so the React component is left holding nothing but
  * DOM wiring, and the fiddly parts can be tested without a browser.
+ *
+ * Precision arrives as a plain `fractionDigits`, so nothing here knows about
+ * currencies: `CurrencyInput` resolves it from one, and a quantity field passes
+ * `QUANTITY_FRACTION_DIGITS`.
  */
 
 /**
@@ -32,18 +35,19 @@ const decimalKeys = new Set(
   [separators.decimal, '.', ','].filter((key) => key !== separators.group),
 );
 
-const inputFormatters = new Map<number, Intl.NumberFormat>();
+const inputFormatters = new Map<string, Intl.NumberFormat>();
 
-const inputFormatter = (fractionDigits: number): Intl.NumberFormat => {
-  const cached = inputFormatters.get(fractionDigits);
+const inputFormatter = (fractionDigits: number, minFractionDigits: number): Intl.NumberFormat => {
+  const key = `${minFractionDigits}-${fractionDigits}`;
+  const cached = inputFormatters.get(key);
   if (cached) return cached;
 
   const formatter = new Intl.NumberFormat(MONEY_LOCALE, {
-    minimumFractionDigits: fractionDigits,
+    minimumFractionDigits: minFractionDigits,
     maximumFractionDigits: fractionDigits,
   });
 
-  inputFormatters.set(fractionDigits, formatter);
+  inputFormatters.set(key, formatter);
   return formatter;
 };
 
@@ -104,7 +108,7 @@ const caretTarget = (formatted: string, edit: Edit): number => {
   const formattedSeparator = formatted.indexOf(separators.decimal);
 
   // In the fraction, and the formatted text kept a fraction to be in. (A
-  // 0-decimal currency drops the separator, so it falls through to the integer
+  // 0-decimal field drops the separator, so it falls through to the integer
   // branch and the caret simply stays after the digits.)
   if (rawSeparator !== -1 && edit.caret > rawSeparator && formattedSeparator !== -1) {
     const fractionDigits = countDigits(edit.text.slice(rawSeparator + 1, edit.caret));
@@ -137,26 +141,28 @@ const dropDigitAfter = (text: string, caret: number): Edit => {
   return { text, caret };
 };
 
-export interface MoneyInputText {
+export interface DecimalInputText {
   /** What the field should display. */
   readonly text: string;
-  /** Major units, or `undefined` while the field is empty. */
+  /** The number it comes to, or `undefined` while the field is empty. */
   readonly value: number | undefined;
 }
 
 /**
- * Reformat a half-typed money field, keeping the grouping in step with the digits.
+ * Reformat a half-typed decimal field, keeping the grouping in step with the digits.
  *
  * Everything that is not a digit is dropped, so paste, stray symbols and the
  * app's own group separators all survive a round-trip. The fraction is truncated
- * to the currency's own precision — IDR has none, so a decimal key is ignored
- * there rather than accepting a rupiah value that cannot exist.
+ * to `fractionDigits` — IDR has none, so a decimal key is ignored on a rupiah
+ * field rather than accepting a value that cannot exist.
  *
- * No currency symbol: the field renders the code beside the input instead.
+ * Nothing is prefixed or suffixed: the field renders its currency code or unit
+ * beside the input instead.
+ *
+ * @param raw The field's text as the browser left it.
+ * @param fractionDigits How many decimals this field accepts.
  */
-export const formatMoneyInput = (raw: string, currency: string): MoneyInputText => {
-  const fractionDigits = getCurrencyFractionDigits(currency);
-
+export const formatDecimalInput = (raw: string, fractionDigits: number): DecimalInputText => {
   let intDigits = '';
   let fracDigits = '';
   let hasDecimal = false;
@@ -164,9 +170,9 @@ export const formatMoneyInput = (raw: string, currency: string): MoneyInputText 
   for (const char of raw) {
     if (char >= '0' && char <= '9') {
       if (hasDecimal) {
-        // Anything past the currency's precision is dropped, never carried into
-        // the integer part: pasting "1.250.000,50" into an IDR field means one
-        // and a quarter million rupiah, not a hundred times that.
+        // Anything past the field's precision is dropped, never carried into the
+        // integer part: pasting "1.250.000,50" into an IDR field means one and a
+        // quarter million rupiah, not a hundred times that.
         if (fracDigits.length < fractionDigits) fracDigits += char;
       } else if (intDigits.length < MAX_INPUT_DIGITS) {
         intDigits += char;
@@ -174,8 +180,8 @@ export const formatMoneyInput = (raw: string, currency: string): MoneyInputText 
       continue;
     }
 
-    // Tracked even for a currency with no minor unit, so the digits behind it
-    // are discarded rather than silently multiplying the amount.
+    // Tracked even on a field that takes no decimals, so the digits behind it
+    // are discarded rather than silently multiplying the value.
     if (!hasDecimal && decimalKeys.has(char)) {
       hasDecimal = true;
     }
@@ -189,7 +195,7 @@ export const formatMoneyInput = (raw: string, currency: string): MoneyInputText 
 
   // Grouped through Intl rather than a hand-rolled every-third-digit loop, so a
   // locale that does not group in threes stays correct.
-  const intText = inputFormatter(0).format(Number(intDigits === '' ? '0' : intDigits));
+  const intText = inputFormatter(0, 0).format(Number(intDigits === '' ? '0' : intDigits));
 
   return {
     text: showsDecimal ? `${intText}${separators.decimal}${fracDigits}` : intText,
@@ -198,17 +204,27 @@ export const formatMoneyInput = (raw: string, currency: string): MoneyInputText 
 };
 
 /**
- * Major units -> the field's canonical text, padded to the currency's precision.
+ * A number -> the field's canonical text.
  *
- * Used to seed the field and to settle it on blur, so a half-typed "1,5" lands
- * as "1,50" once the user leaves it.
+ * Seeds the field and settles it on blur. Money pads to its full precision, so a
+ * half-typed "1,5" lands as "1,50" once the user leaves it; a quantity passes
+ * `minFractionDigits: 0` and stays "1,5", because a padded "1,500" reads as one
+ * thousand five hundred in this locale.
+ *
+ * @param value The number to render, or `undefined` for an empty field.
+ * @param fractionDigits The most decimals to show.
+ * @param minFractionDigits The fewest, defaulting to `fractionDigits` (padded).
  */
-export const formatMoneyInputValue = (value: number | undefined, currency: string): string => {
+export const formatDecimalInputValue = (
+  value: number | undefined,
+  fractionDigits: number,
+  minFractionDigits: number = fractionDigits,
+): string => {
   if (value === undefined || !Number.isFinite(value)) return '';
-  return inputFormatter(getCurrencyFractionDigits(currency)).format(value);
+  return inputFormatter(fractionDigits, minFractionDigits).format(value);
 };
 
-export interface MoneyKeystroke {
+export interface DecimalKeystroke {
   /** What the field showed before this keystroke. */
   readonly previousText: string;
   /** What the browser left in the field after it. */
@@ -217,37 +233,39 @@ export interface MoneyKeystroke {
   readonly caret: number;
   /** The key that caused the change, when known. */
   readonly key: string | null;
-  readonly currency: string;
+  /** How many decimals this field accepts. */
+  readonly fractionDigits: number;
 }
 
-export interface MoneyInputState extends MoneyInputText {
+export interface DecimalInputState extends DecimalInputText {
   /** Where the caret belongs once `text` is on screen. */
   readonly caret: number;
 }
 
 /**
- * One keystroke against a money field.
+ * One keystroke against a decimal field.
  *
  * The deletion keys need the `key` that caused the change because a `change`
  * event cannot tell a backspace from a forward delete, and the two want the
  * digit on opposite sides of the caret.
  */
-export const applyMoneyKeystroke = ({
+export const applyDecimalKeystroke = ({
   previousText,
   rawText,
   caret,
   key,
-  currency,
-}: MoneyKeystroke): MoneyInputState => {
+  fractionDigits,
+}: DecimalKeystroke): DecimalInputState => {
   // A one-character deletion that took a separator rather than a digit. `caret`
   // already sits where the removed character was, for both delete directions.
-  const removedSeparator = rawText.length === previousText.length - 1 && !isDigit(previousText[caret]);
+  const removedSeparator =
+    rawText.length === previousText.length - 1 && !isDigit(previousText[caret]);
 
   let edit: Edit = { text: rawText, caret };
   if (removedSeparator && key === 'Backspace') edit = dropDigitBefore(rawText, caret);
   if (removedSeparator && key === 'Delete') edit = dropDigitAfter(rawText, caret);
 
-  const formatted = formatMoneyInput(edit.text, currency);
+  const formatted = formatDecimalInput(edit.text, fractionDigits);
 
   return {
     text: formatted.text,

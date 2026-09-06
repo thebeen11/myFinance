@@ -1,4 +1,4 @@
-import { formatMoney, fromMinor } from '@myfinance/shared';
+import { formatMoney, formatQuantity, fromMinor } from '@myfinance/shared';
 
 /**
  * The one locale every money string in this app is rendered for.
@@ -13,6 +13,14 @@ export const MONEY_LOCALE = 'id-ID';
 /** Minor units -> localized currency string. Thin re-export so pages import one module. */
 export const money = (amountMinor: number, currency: string, signed = false): string =>
   formatMoney(amountMinor, currency, { locale: MONEY_LOCALE, signed });
+
+/**
+ * Persisted thousandths -> the quantity a human wrote: 1_500 is "1,5", 2_000 is
+ * "2". Thin re-export so pages import one module, and so the locale matches the
+ * money beside it on the same line.
+ */
+export const quantityText = (quantityMilli: number): string =>
+  formatQuantity(quantityMilli, { locale: MONEY_LOCALE });
 
 /**
  * `Intl.NumberFormat` construction is expensive and tick formatters run once per

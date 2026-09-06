@@ -7,6 +7,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   MaxLength,
   Min,
   MinLength,
@@ -43,10 +44,24 @@ export class CreateTransactionItemDto {
   @MaxLength(160)
   name!: string;
 
-  @ApiProperty({ example: 2, minimum: 1 })
+  /**
+   * Thousandths of a unit, so a weighed item is what the receipt says: 1.5 kg of
+   * watermelon is `1500`, two tins are `2000`.
+   *
+   * An integer, like every other figure here, because it gets multiplied by a
+   * price. The ceiling keeps `quantityMilli × unitPriceMinor` inside the safe
+   * integer range before `lineGrossMinor` divides it back down.
+   */
+  @ApiProperty({
+    example: 1_500,
+    minimum: 1,
+    maximum: 100_000_000,
+    description: 'Thousandths of a unit — 1.5 kg is 1500, two tins are 2000.',
+  })
   @IsInt()
   @Min(1)
-  quantity!: number;
+  @Max(100_000_000)
+  quantityMilli!: number;
 
   @ApiProperty({
     example: 3500,

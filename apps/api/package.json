@@ -25,6 +25,7 @@
     "prisma:seed": "prisma db seed",
     "prisma:rls": "tsx prisma/enable-rls.ts",
     "prisma:backfill-item-discounts": "tsx prisma/backfill-item-discounts.ts",
+    "prisma:rescale-quantity": "tsx prisma/rescale-item-quantity.ts",
     "prisma:studio": "prisma studio"
   },
   "dependencies": {

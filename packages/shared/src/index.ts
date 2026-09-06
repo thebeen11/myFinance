@@ -17,6 +17,7 @@ export {
   basisPointsToPercent,
   percentToBasisPoints,
 } from './money/basis-points';
+export { lineGrossMinor } from './money/line-gross';
 export { cascadeDiscounts } from './money/cascade-discounts';
 export type {
   CascadedDiscount,
@@ -24,3 +25,12 @@ export type {
   LineDiscountInput,
 } from './money/cascade-discounts';
 export { allocateProportionally } from './money/allocate';
+
+export {
+  QUANTITY_SCALE,
+  QUANTITY_FRACTION_DIGITS,
+  toQuantityMilli,
+  fromQuantityMilli,
+} from './quantity/quantity-scale';
+export { formatQuantity } from './quantity/format-quantity';
+export type { FormatQuantityOptions } from './quantity/format-quantity';

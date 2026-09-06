@@ -2,7 +2,16 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { basisPointsToPercent, cascadeDiscounts, fromMinor, toMinor } from '@myfinance/shared';
+import {
+  basisPointsToPercent,
+  cascadeDiscounts,
+  fromMinor,
+  fromQuantityMilli,
+  lineGrossMinor,
+  QUANTITY_FRACTION_DIGITS,
+  toMinor,
+  toQuantityMilli,
+} from '@myfinance/shared';
 import { useEffect } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
@@ -11,6 +20,7 @@ import { z } from 'zod';
 import { productsCreate, transactionItemsCreate, transactionItemsUpdate } from '@/api';
 import type { CategoryResponse, TransactionItemResponse, TransactionResponse } from '@/api';
 import { CurrencyInput } from '@/components/forms/currency-input';
+import { DecimalInput } from '@/components/forms/decimal-input';
 import { ProductCombobox } from '@/components/products/product-combobox';
 import {
   LineDiscountsField,
@@ -28,7 +38,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -49,9 +58,12 @@ const schema = z.object({
   productId: z.string(),
   categoryId: z.string().uuid('Pick a category'),
   name: z.string().min(1, 'Name what was bought').max(160),
-  // `valueAsNumber` on the input keeps this a number; an emptied field arrives as
-  // NaN, which `.int()` rejects with a message rather than a type error.
-  quantity: z.number().int('Whole units only').min(1, 'At least one'),
+  // Fractional, because a shop sells by weight: 1,5 kg of watermelon at
+  // Rp 40.000/kg is the line, not one unit at Rp 60.000. `DecimalInput` holds it
+  // as a number, and an emptied field arrives as NaN, which `.min()` rejects with
+  // a message rather than a type error. The floor is one thousandth — the
+  // smallest quantity the stored scale can express.
+  quantity: z.number().min(0.001, 'Enter how much was bought'),
   // Major units as typed by a human; converted to minor units on submit.
   // `undefined` is an empty field — the union lets the form hold that state and
   // the refinement turns it into a message instead of a type error.
@@ -99,6 +111,10 @@ interface TransactionItemDialogProps {
  * become master data, and promoting it stays the deliberate step that can also
  * give it a product code.
  *
+ * The quantity is a decimal, because a shop sells by weight: 1,5 kg of
+ * watermelon at Rp 40.000/kg is that line, and typing it as one unit at
+ * Rp 60.000 would put a price on the catalogue that the shop never charged.
+ *
  * Discounts are a list, and they **cascade**: each one comes off what the ones
  * above it left, which is how a receipt prints them. 55,000 with a 20% promo and
  * a 5% member discount is 11,000 and 2,200 — the member rate reads against the
@@ -144,7 +160,7 @@ export const TransactionItemDialog = ({
       productId: item?.product?.id ?? '',
       categoryId: item?.category?.id ?? '',
       name: item?.name ?? '',
-      quantity: item?.quantity ?? 1,
+      quantity: item ? fromQuantityMilli(item.quantityMilli) : 1,
       unitPrice: item ? fromMinor(item.unitPriceMinor, transaction.currency) : undefined,
       // A line with no discount opens with no rows, not an empty one.
       discounts: toDiscountRows(item?.discounts ?? [], transaction.currency),
@@ -208,7 +224,7 @@ export const TransactionItemDialog = ({
         productId: catalogued.productId,
         categoryId: parsed.categoryId,
         name: parsed.name,
-        quantity: parsed.quantity,
+        quantityMilli: toQuantityMilli(parsed.quantity),
         unitPriceMinor,
         // Rates go over as rates; the API cascades them and derives the money.
         discounts: toDiscountBodies(parsed.discounts, transaction.currency),
@@ -282,9 +298,12 @@ export const TransactionItemDialog = ({
         ? 'Not in the catalogue.'
         : 'Not in the catalogue — it will be added when you save.';
 
-  const grossMinor = toMinor(
-    (Number.isFinite(quantity) ? quantity : 0) * (unitPrice ?? 0),
-    transaction.currency,
+  // Scaled the same way the body is, then priced by the same helper the API
+  // derives with — an emptied quantity field is NaN, which would otherwise reach
+  // `toQuantityMilli` and throw where the preview should just read zero.
+  const grossMinor = lineGrossMinor(
+    Number.isFinite(quantity) ? toQuantityMilli(quantity) : 0,
+    toMinor(unitPrice ?? 0, transaction.currency),
   );
   // The same helper the API derives with, so this preview is the figure that will
   // be stored rather than one that usually agrees with it — including the order
@@ -397,18 +416,30 @@ export const TransactionItemDialog = ({
             </div>
 
             <div className="grid gap-2">
-              {/* The quantity gets a fixed column wide enough for its own label; the
-                money field takes everything left over. */}
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-[6.5rem_1fr] sm:gap-3">
+              {/* The quantity gets a fixed column wide enough for its own label and
+                for a three-decimal weight; the money field takes what is left. */}
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-[8rem_1fr] sm:gap-3">
                 <div className="grid gap-2">
                   <Label htmlFor="quantity">Quantity</Label>
-                  <Input
-                    id="quantity"
-                    type="number"
-                    min={1}
-                    step={1}
-                    {...form.register('quantity', { valueAsNumber: true })}
-                    aria-invalid={Boolean(form.formState.errors.quantity)}
+                  {/* Not a number input: a weight is typed "1,5" and a browser whose
+                    locale uses a dot would reject it outright. */}
+                  <Controller
+                    control={form.control}
+                    name="quantity"
+                    render={({ field }) => (
+                      <DecimalInput
+                        id="quantity"
+                        fractionDigits={QUANTITY_FRACTION_DIGITS}
+                        // Unpadded: "1" stays "1" rather than settling to "1,000",
+                        // which in this locale reads as a thousand.
+                        minFractionDigits={0}
+                        name={field.name}
+                        value={field.value}
+                        onChange={field.onChange}
+                        onBlur={field.onBlur}
+                        aria-invalid={Boolean(form.formState.errors.quantity)}
+                      />
+                    )}
                   />
                 </div>
 

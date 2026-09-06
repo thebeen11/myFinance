@@ -1,5 +1,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { cascadeDiscounts, percentToBasisPoints, toMinor } from '@myfinance/shared';
+import {
+  cascadeDiscounts,
+  lineGrossMinor,
+  percentToBasisPoints,
+  toMinor,
+  toQuantityMilli,
+} from '@myfinance/shared';
 
 import { PrismaService } from '../../database/prisma.service';
 import { ReceiptDraftChargeResponse } from '../models/receipt-draft-charge.response';
@@ -96,15 +102,18 @@ export class ReceiptScanService {
   ): ReceiptDraftLineResponse {
     const product = matchProduct(line, products);
     const unitPriceMinor = toMinor(line.unitPrice, currency);
+    // The model reads a receipt in printed units, including a fractional weight;
+    // a line stores thousandths, and this is where the two meet.
+    const quantityMilli = toQuantityMilli(line.quantity);
     const discounts = line.discounts.map((discount) => this.toDraftDiscount(discount, currency));
-    const cascaded = cascadeDiscounts(line.quantity * unitPriceMinor, discounts);
+    const cascaded = cascadeDiscounts(lineGrossMinor(quantityMilli, unitPriceMinor), discounts);
 
     return {
       productId: product?.id ?? null,
       categoryId: product?.categoryId ?? null,
       categoryName: product?.category?.name ?? null,
       name: line.name,
-      quantity: line.quantity,
+      quantityMilli,
       unitPriceMinor,
       discounts,
       discountBasisPoints: cascaded.effectiveBasisPoints,
