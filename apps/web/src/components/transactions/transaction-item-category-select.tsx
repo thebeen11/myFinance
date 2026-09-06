@@ -51,7 +51,8 @@ export const TransactionItemCategorySelect = ({
   transaction,
   item,
   categories,
-}: TransactionItemCategorySelectProps): ReactNode => {
+  className,
+}: TransactionItemCategorySelectProps & { className?: string }): ReactNode => {
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
@@ -126,10 +127,12 @@ export const TransactionItemCategorySelect = ({
         aria-label={`Category for ${item.name}`}
         className={cn(
           // Quiet until touched — a column of bordered controls reads as a form
-          // rather than a receipt. The negative margin keeps the label optically
-          // on the same line as the cells either side of it.
-          '-mx-2.5 max-w-52 border-transparent bg-transparent hover:bg-muted data-[state=open]:bg-muted',
+          // rather than a receipt. The negative margin and the width cap are
+          // `sm:` only: they exist to sit the label on the same line as the table
+          // cells either side of it, and below `md` there is no table.
+          'sm:-mx-2.5 sm:max-w-52 border-transparent bg-transparent hover:bg-muted data-[state=open]:bg-muted',
           value === UNCATEGORISED && 'text-muted-foreground',
+          className,
         )}
       >
         <SelectValue />

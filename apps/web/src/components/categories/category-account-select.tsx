@@ -38,7 +38,8 @@ interface CategoryAccountSelectProps {
 export const CategoryAccountSelect = ({
   category,
   accounts,
-}: CategoryAccountSelectProps): ReactNode => {
+  className,
+}: CategoryAccountSelectProps & { className?: string }): ReactNode => {
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
@@ -92,10 +93,12 @@ export const CategoryAccountSelect = ({
         aria-label={`Account for ${category.name}`}
         className={cn(
           // Quiet until touched — a column of bordered controls reads as a form
-          // rather than a list. The negative margin keeps the label optically on
-          // the same line as the cells either side of it.
-          '-mx-2.5 max-w-44 border-transparent bg-transparent hover:bg-muted data-[state=open]:bg-muted',
+          // rather than a list. The negative margin and the width cap are `sm:`
+          // only: they exist to sit the label on the same line as the table cells
+          // either side of it, and below `md` there is no table.
+          'sm:-mx-2.5 sm:max-w-44 border-transparent bg-transparent hover:bg-muted data-[state=open]:bg-muted',
           value === UNASSIGNED_ACCOUNT ? 'text-muted-foreground/60' : 'text-muted-foreground',
+          className,
         )}
       >
         <SelectValue />

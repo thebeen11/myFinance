@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogClose,
+  DialogBody,
   DialogContent,
   DialogFooter,
   DialogHeader,
@@ -36,12 +37,7 @@ interface MerchantDialogProps {
   trigger?: ReactNode;
 }
 
-export const MerchantDialog = ({
-  merchant,
-  open,
-  onOpenChange,
-  trigger,
-}: MerchantDialogProps) => {
+export const MerchantDialog = ({ merchant, open, onOpenChange, trigger }: MerchantDialogProps) => {
   const queryClient = useQueryClient();
 
   const form = useForm<FormValues>({
@@ -85,17 +81,23 @@ export const MerchantDialog = ({
         </DialogHeader>
 
         <form
-          className="space-y-4"
+          className="flex min-h-0 flex-1 flex-col gap-4"
           onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
         >
-          <div className="grid gap-2">
-            <Label htmlFor="name">Name</Label>
-            <Input id="name" placeholder="Indomaret" autoComplete="off" {...form.register('name')} />
-            {form.formState.errors.name ? (
-              <p className="text-destructive text-xs">{form.formState.errors.name.message}</p>
-            ) : null}
-          </div>
-
+          <DialogBody className="space-y-4">
+            <div className="grid gap-2">
+              <Label htmlFor="name">Name</Label>
+              <Input
+                id="name"
+                placeholder="Indomaret"
+                autoComplete="off"
+                {...form.register('name')}
+              />
+              {form.formState.errors.name ? (
+                <p className="text-destructive text-xs">{form.formState.errors.name.message}</p>
+              ) : null}
+            </div>
+          </DialogBody>
           <DialogFooter>
             <DialogClose asChild>
               <Button type="button" variant="ghost">

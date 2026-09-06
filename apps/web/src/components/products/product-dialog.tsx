@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogClose,
+  DialogBody,
   DialogContent,
   DialogFooter,
   DialogHeader,
@@ -131,87 +132,97 @@ export const ProductDialog = ({
         </DialogHeader>
 
         <form
-          className="space-y-4"
+          className="flex min-h-0 flex-1 flex-col gap-4"
           onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
         >
-          <div className="grid gap-2">
-            <Label htmlFor="code">Code</Label>
-            <Input id="code" placeholder="IDM-001" autoComplete="off" {...form.register('code')} />
-            {form.formState.errors.code ? (
-              <p className="text-destructive text-xs">{form.formState.errors.code.message}</p>
-            ) : (
-              <p className="text-muted-foreground text-xs">
-                Optional. The shop&rsquo;s own code, if it prints one.
-              </p>
-            )}
-          </div>
-
-          <div className="grid gap-2">
-            <Label htmlFor="name">Name</Label>
-            <Input
-              id="name"
-              placeholder="Indomie Goreng"
-              autoComplete="off"
-              {...form.register('name')}
-            />
-            {form.formState.errors.name ? (
-              <p className="text-destructive text-xs">{form.formState.errors.name.message}</p>
-            ) : null}
-          </div>
-
-          <div className="grid gap-2">
-            <Label htmlFor="categoryId">Category</Label>
-            <Controller
-              control={form.control}
-              name="categoryId"
-              render={({ field }) => (
-                // A Select value cannot be `''`, so the empty state is signalled by
-                // passing undefined and letting the placeholder show.
-                <Select value={field.value || undefined} onValueChange={field.onChange}>
-                  <SelectTrigger id="categoryId" className="w-full">
-                    <SelectValue placeholder="Pick a category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {selectableCategories.map((category) => (
-                      <SelectItem key={category.id} value={category.id}>
-                        <span
-                          className="size-2.5 shrink-0 rounded-full"
-                          style={{ background: category.color ?? 'var(--muted-foreground)' }}
-                          aria-hidden
-                        />
-                        {category.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+          <DialogBody className="space-y-4">
+            <div className="grid gap-2">
+              <Label htmlFor="code">Code</Label>
+              <Input
+                id="code"
+                placeholder="IDM-001"
+                autoComplete="off"
+                {...form.register('code')}
+              />
+              {form.formState.errors.code ? (
+                <p className="text-destructive text-xs">{form.formState.errors.code.message}</p>
+              ) : (
+                <p className="text-muted-foreground text-xs">
+                  Optional. The shop&rsquo;s own code, if it prints one.
+                </p>
               )}
-            />
-            {form.formState.errors.categoryId ? (
-              <p className="text-destructive text-xs">{form.formState.errors.categoryId.message}</p>
-            ) : null}
-          </div>
+            </div>
 
-          <div className="grid gap-2">
-            <Label htmlFor="lastPrice">Last price</Label>
-            <Controller
-              control={form.control}
-              name="lastPrice"
-              render={({ field }) => (
-                <CurrencyInput
-                  id="lastPrice"
-                  currency={DEFAULT_CURRENCY}
-                  name={field.name}
-                  value={field.value}
-                  onChange={field.onChange}
-                  onBlur={field.onBlur}
-                />
-              )}
-            />
-            {form.formState.errors.lastPrice ? (
-              <p className="text-destructive text-xs">{form.formState.errors.lastPrice.message}</p>
-            ) : null}
-          </div>
+            <div className="grid gap-2">
+              <Label htmlFor="name">Name</Label>
+              <Input
+                id="name"
+                placeholder="Indomie Goreng"
+                autoComplete="off"
+                {...form.register('name')}
+              />
+              {form.formState.errors.name ? (
+                <p className="text-destructive text-xs">{form.formState.errors.name.message}</p>
+              ) : null}
+            </div>
 
+            <div className="grid gap-2">
+              <Label htmlFor="categoryId">Category</Label>
+              <Controller
+                control={form.control}
+                name="categoryId"
+                render={({ field }) => (
+                  // A Select value cannot be `''`, so the empty state is signalled by
+                  // passing undefined and letting the placeholder show.
+                  <Select value={field.value || undefined} onValueChange={field.onChange}>
+                    <SelectTrigger id="categoryId" className="w-full">
+                      <SelectValue placeholder="Pick a category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {selectableCategories.map((category) => (
+                        <SelectItem key={category.id} value={category.id}>
+                          <span
+                            className="size-2.5 shrink-0 rounded-full"
+                            style={{ background: category.color ?? 'var(--muted-foreground)' }}
+                            aria-hidden
+                          />
+                          {category.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              {form.formState.errors.categoryId ? (
+                <p className="text-destructive text-xs">
+                  {form.formState.errors.categoryId.message}
+                </p>
+              ) : null}
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="lastPrice">Last price</Label>
+              <Controller
+                control={form.control}
+                name="lastPrice"
+                render={({ field }) => (
+                  <CurrencyInput
+                    id="lastPrice"
+                    currency={DEFAULT_CURRENCY}
+                    name={field.name}
+                    value={field.value}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                  />
+                )}
+              />
+              {form.formState.errors.lastPrice ? (
+                <p className="text-destructive text-xs">
+                  {form.formState.errors.lastPrice.message}
+                </p>
+              ) : null}
+            </div>
+          </DialogBody>
           <DialogFooter>
             <DialogClose asChild>
               <Button type="button" variant="ghost">

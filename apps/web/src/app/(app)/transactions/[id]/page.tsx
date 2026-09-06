@@ -13,12 +13,14 @@ import type { TransactionItemResponse } from '@/api';
 import { SaveToCatalogueDialog } from '@/components/transactions/save-to-catalogue-dialog';
 import {
   TransactionChargesFooter,
+  TransactionChargesPanel,
   useTransactionCharges,
 } from '@/components/transactions/transaction-charges';
 import { TransactionDialog } from '@/components/transactions/transaction-dialog';
 import { TransactionItemCategorySelect } from '@/components/transactions/transaction-item-category-select';
 import { TransactionItemDialog } from '@/components/transactions/transaction-item-dialog';
 import { TransactionSplitCard } from '@/components/transactions/transaction-split-card';
+import { ListRow, ListRowGroup, ListState, type ListStatus } from '@/components/shell/list-row';
 import { PageHeader } from '@/components/shell/page-header';
 import {
   AlertDialog,
@@ -33,6 +35,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -144,9 +147,16 @@ export default function TransactionDetailPage() {
     );
   }
 
+  const itemsStatus: ListStatus = transaction.isPending
+    ? 'pending'
+    : items.length === 0
+      ? 'empty'
+      : 'ready';
+
   return (
     <div className="flex flex-col gap-5">
       <PageHeader
+        eyebrowClassName="hidden md:block"
         eyebrow={
           <Link
             href="/transactions"
@@ -247,7 +257,7 @@ export default function TransactionDetailPage() {
 
       {isIncome || isSettlement ? null : (
         <>
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-lg font-semibold tracking-tight">What was bought</h2>
             <div className="flex items-center gap-2">
               <Button variant="secondary" disabled={!receipt} onClick={charges.addCharge}>
@@ -268,7 +278,101 @@ export default function TransactionDetailPage() {
           </div>
 
           <Card className="[--card-spacing:0px] py-0">
-            <Table>
+            {itemsStatus === 'ready' ? (
+              <>
+                <ListRowGroup className="md:hidden">
+                  {items.map((item) => (
+                    <ListRow
+                      key={item.id}
+                      title={
+                        <>
+                          {item.name}
+                          {item.product?.code ? (
+                            <span className="text-muted-foreground ml-2 font-mono text-xs font-normal">
+                              {item.product.code}
+                            </span>
+                          ) : null}
+                        </>
+                      }
+                      subtitle={
+                        <>
+                          {item.quantity} × {money(item.unitPriceMinor, receipt?.currency ?? 'IDR')}
+                          {item.discountMinor > 0
+                            ? ` · −${money(item.discountMinor, receipt?.currency ?? 'IDR')}`
+                            : ''}
+                        </>
+                      }
+                      trailing={money(item.lineTotalMinor, receipt?.currency ?? 'IDR')}
+                      // A control, not a value: on a phone it gets a full line and
+                      // a real target rather than a 208px sliver in a cell.
+                      footer={
+                        receipt ? (
+                          <div className="flex items-center gap-2">
+                            <span className="text-muted-foreground shrink-0 text-xs">Category</span>
+                            <TransactionItemCategorySelect
+                              transaction={receipt}
+                              item={item}
+                              categories={categories.data ?? []}
+                              className="max-w-none flex-1"
+                            />
+                          </div>
+                        ) : null
+                      }
+                      actions={
+                        <>
+                          {/* Only offered for a line that is not already in the
+                              catalogue, and only when there is a merchant to file
+                              it under. */}
+                          {receipt && !item.product ? (
+                            <DropdownMenuItem
+                              disabled={!receipt.merchant}
+                              onSelect={() => setPromoting(item)}
+                            >
+                              <BookmarkPlus />
+                              {receipt.merchant ? 'Save to the catalogue' : 'Set a merchant first'}
+                            </DropdownMenuItem>
+                          ) : null}
+                          <DropdownMenuItem
+                            onSelect={() => {
+                              setEditingItem(item);
+                              setItemDialogOpen(true);
+                            }}
+                          >
+                            <Pencil />
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onSelect={() => setPendingDelete(item)}
+                          >
+                            <Trash2 />
+                            Remove
+                          </DropdownMenuItem>
+                        </>
+                      }
+                    />
+                  ))}
+                </ListRowGroup>
+
+                {/* Tax, service charge, delivery — the receipt's tail. Outside the
+                    table on a phone, where the `colSpan` wrapper it needs there is
+                    neither available nor necessary. */}
+                {receipt ? (
+                  <div className="border-border border-t md:hidden">
+                    <TransactionChargesPanel transaction={receipt} charges={charges} />
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <ListState
+                status={itemsStatus}
+                rows={3}
+                title="Nothing itemised yet"
+                description="Add what was bought — the total adds itself up from the lines."
+              />
+            )}
+
+            <Table className="hidden md:table">
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   <TableHead className="pl-5">Item</TableHead>
@@ -281,125 +385,104 @@ export default function TransactionDetailPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {transaction.isPending ? (
-                  Array.from({ length: 3 }, (_, index) => (
-                    <TableRow key={index}>
-                      <TableCell colSpan={7} className="px-5">
-                        <Skeleton className="h-6 w-full" />
-                      </TableCell>
-                    </TableRow>
-                  ))
-                ) : items.length === 0 ? (
-                  <TableRow className="hover:bg-transparent">
-                    <TableCell colSpan={7} className="py-14 text-center">
-                      <p className="text-sm font-medium">Nothing itemised yet</p>
-                      <p className="text-muted-foreground mt-1 text-sm">
-                        Add what was bought — the total adds itself up from the lines.
-                      </p>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  items.map((item) => (
-                    <TableRow key={item.id} className="hover:bg-muted/50">
-                      <TableCell className="pl-5 font-medium">
-                        <span className="flex flex-col">
-                          {item.name}
-                          {item.product?.code ? (
-                            <span className="text-muted-foreground text-xs font-normal">
-                              {item.product.code}
-                            </span>
-                          ) : null}
-                        </span>
-                      </TableCell>
-                      <TableCell className="py-1">
-                        {receipt ? (
-                          <TransactionItemCategorySelect
-                            transaction={receipt}
-                            item={item}
-                            categories={categories.data ?? []}
-                          />
+                {items.map((item) => (
+                  <TableRow key={item.id} className="hover:bg-muted/50">
+                    <TableCell className="pl-5 font-medium">
+                      <span className="flex flex-col">
+                        {item.name}
+                        {item.product?.code ? (
+                          <span className="text-muted-foreground text-xs font-normal">
+                            {item.product.code}
+                          </span>
                         ) : null}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground text-right tabular-nums">
-                        {item.quantity}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground text-right tabular-nums">
-                        {money(item.unitPriceMinor, receipt?.currency ?? 'IDR')}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground text-right tabular-nums">
-                        {item.discountMinor > 0 ? (
-                          <span className="flex flex-col">
-                            {/* Explicit sign, not a colour: the design system never
+                      </span>
+                    </TableCell>
+                    <TableCell className="py-1">
+                      {receipt ? (
+                        <TransactionItemCategorySelect
+                          transaction={receipt}
+                          item={item}
+                          categories={categories.data ?? []}
+                        />
+                      ) : null}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-right tabular-nums">
+                      {item.quantity}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-right tabular-nums">
+                      {money(item.unitPriceMinor, receipt?.currency ?? 'IDR')}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-right tabular-nums">
+                      {item.discountMinor > 0 ? (
+                        <span className="flex flex-col">
+                          {/* Explicit sign, not a colour: the design system never
                                 signals direction by colour alone. */}
-                            −{money(item.discountMinor, receipt?.currency ?? 'IDR')}
-                            {/* What it is made of, in the order it cascades. The
+                          −{money(item.discountMinor, receipt?.currency ?? 'IDR')}
+                          {/* What it is made of, in the order it cascades. The
                                 effective rate stands in for a line backfilled from
                                 before the discounts were rows of their own. */}
-                            {item.discounts.length > 0 ? (
-                              item.discounts.map((discount) => (
-                                <span key={discount.id} className="text-xs">
-                                  {discount.name ? `${discount.name} ` : ''}
-                                  {discount.basisPoints
-                                    ? `${basisPointsToPercent(discount.basisPoints)}%`
-                                    : `−${money(discount.amountMinor, receipt?.currency ?? 'IDR')}`}
-                                </span>
-                              ))
-                            ) : (
-                              <span className="text-xs">{item.discountBasisPoints / 100}%</span>
-                            )}
-                          </span>
-                        ) : (
-                          '—'
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right font-medium tabular-nums">
-                        {money(item.lineTotalMinor, receipt?.currency ?? 'IDR')}
-                      </TableCell>
-                      <TableCell className="pr-5 text-right whitespace-nowrap">
-                        {/* Only offered for a line that is not already in the catalogue,
+                          {item.discounts.length > 0 ? (
+                            item.discounts.map((discount) => (
+                              <span key={discount.id} className="text-xs">
+                                {discount.name ? `${discount.name} ` : ''}
+                                {discount.basisPoints
+                                  ? `${basisPointsToPercent(discount.basisPoints)}%`
+                                  : `−${money(discount.amountMinor, receipt?.currency ?? 'IDR')}`}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-xs">{item.discountBasisPoints / 100}%</span>
+                          )}
+                        </span>
+                      ) : (
+                        '—'
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right font-medium tabular-nums">
+                      {money(item.lineTotalMinor, receipt?.currency ?? 'IDR')}
+                    </TableCell>
+                    <TableCell className="pr-5 text-right whitespace-nowrap">
+                      {/* Only offered for a line that is not already in the catalogue,
                         and only when there is a merchant to file it under. */}
-                        {receipt && !item.product ? (
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label={`Save ${item.name} to the catalogue`}
-                            title={
-                              receipt.merchant
-                                ? 'Save to the catalogue'
-                                : 'Set a merchant on this transaction first'
-                            }
-                            disabled={!receipt.merchant}
-                            onClick={() => setPromoting(item)}
-                          >
-                            <BookmarkPlus />
-                          </Button>
-                        ) : null}
+                      {receipt && !item.product ? (
                         <Button
                           variant="ghost"
                           size="icon-sm"
-                          aria-label={`Edit ${item.name}`}
-                          onClick={() => {
-                            setEditingItem(item);
-                            setItemDialogOpen(true);
-                          }}
+                          aria-label={`Save ${item.name} to the catalogue`}
+                          title={
+                            receipt.merchant
+                              ? 'Save to the catalogue'
+                              : 'Set a merchant on this transaction first'
+                          }
+                          disabled={!receipt.merchant}
+                          onClick={() => setPromoting(item)}
                         >
-                          <Pencil />
+                          <BookmarkPlus />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`Remove ${item.name}`}
-                          onClick={() => setPendingDelete(item)}
-                        >
-                          <Trash2 />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
+                      ) : null}
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Edit ${item.name}`}
+                        onClick={() => {
+                          setEditingItem(item);
+                          setItemDialogOpen(true);
+                        }}
+                      >
+                        <Pencil />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Remove ${item.name}`}
+                        onClick={() => setPendingDelete(item)}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
               </TableBody>
-              {/* Tax, service charge, delivery — the receipt's tail, in the same
-                  card as the lines it is charged on top of. */}
               {receipt ? (
                 <TransactionChargesFooter transaction={receipt} charges={charges} />
               ) : null}

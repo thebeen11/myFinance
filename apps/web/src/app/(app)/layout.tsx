@@ -3,6 +3,9 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, type ReactNode } from 'react';
 
+import { BottomNav } from '@/components/shell/bottom-nav';
+import { MobileFab } from '@/components/shell/mobile-fab';
+import { MobileHeader, MobileHeaderSkeleton } from '@/components/shell/mobile-header';
 import { TopNav, TopNavSkeleton } from '@/components/shell/top-nav';
 import { useLogout } from '@/hooks/use-auth';
 import { useMe } from '@/hooks/use-finance-queries';
@@ -31,24 +34,48 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const isResolved = hasToken && !me.isError && !me.isPending;
 
   return (
-    <div className="min-h-svh px-3 py-3 sm:px-5 sm:py-4">
-      <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-5 sm:gap-6">
+    // The bottom padding clears the fixed tab bar and the FAB riding above it.
+    // Desktop drops back to plain padding, where neither exists.
+    <div className="min-h-svh px-3 pt-3 pb-[calc(var(--safe-b)+6rem)] sm:px-5 sm:pt-4 md:pb-4">
+      <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-4 sm:gap-6">
         {/* The chrome renders before auth resolves so the page does not flash a
-            bare canvas, but never with anyone's name or figures on it. */}
+            bare canvas, but never with anyone's name or figures on it. Both the
+            real header and the placeholder carry the same breakpoints, or the
+            jump just moves to mobile. */}
         {isResolved ? (
-          <TopNav
-            displayName={me.data.displayName}
-            username={me.data.username}
-            onSignOut={() => logout.mutate()}
-            isSigningOut={logout.isPending}
-          />
+          <>
+            <TopNav
+              displayName={me.data.displayName}
+              username={me.data.username}
+              onSignOut={() => logout.mutate()}
+              isSigningOut={logout.isPending}
+            />
+            <MobileHeader
+              displayName={me.data.displayName}
+              username={me.data.username}
+              onSignOut={() => logout.mutate()}
+              isSigningOut={logout.isPending}
+            />
+          </>
         ) : (
-          <TopNavSkeleton />
+          <>
+            <TopNavSkeleton />
+            <MobileHeaderSkeleton />
+          </>
         )}
 
         {/* Render nothing rather than a flash of someone's finances behind a redirect. */}
         <main>{isResolved ? children : null}</main>
       </div>
+
+      {/* Outside the max-width column: both are fixed to the viewport, and nesting
+          them in a centred container would only confuse where their edges are. */}
+      {isResolved ? (
+        <>
+          <MobileFab />
+          <BottomNav />
+        </>
+      ) : null}
     </div>
   );
 }

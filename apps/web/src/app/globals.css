@@ -112,6 +112,13 @@
     --chart-3: oklch(0.55 0.075 190);
     --chart-4: oklch(0.86 0.06 155);
     --chart-5: oklch(0.7 0.14 70);
+
+    /* Zero in a desktop browser, a real inset on a notched phone once the root
+     * layout ships `viewport-fit=cover`. Named here so the fixed chrome can write
+     * `pb-(--safe-b)` instead of repeating `env()` at every call site — and so the
+     * fallback lives in exactly one place. */
+    --safe-t: env(safe-area-inset-top, 0px);
+    --safe-b: env(safe-area-inset-bottom, 0px);
 }
 
 @layer base {
@@ -120,8 +127,17 @@
     }
   body {
     @apply bg-background text-foreground;
+    /* Without this the whole app rubber-bands away from the fixed tab bar on iOS,
+     * which reads as the shell coming unstuck rather than as a scroll. */
+    overscroll-behavior-y: none;
     }
   html {
     @apply font-sans;
+    /* Safari inflates text on rotate otherwise, which breaks the money column's
+     * tabular alignment mid-session. */
+    -webkit-text-size-adjust: 100%;
+    /* The grey flash on tap belongs to a document, not to an app; press feedback
+     * is the button's own `active:` state. */
+    -webkit-tap-highlight-color: transparent;
     }
 }

@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { productsRemove } from '@/api';
 import type { ProductResponse } from '@/api';
 import { ProductDialog } from '@/components/products/product-dialog';
+import { ListRow, ListRowGroup, ListState, type ListStatus } from '@/components/shell/list-row';
 import { PageHeader } from '@/components/shell/page-header';
 import {
   AlertDialog,
@@ -23,8 +24,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
   TableBody,
@@ -61,8 +62,7 @@ export default function MerchantProductsPage() {
     return term
       ? all.filter(
           (product) =>
-            product.code?.toLowerCase().includes(term) ||
-            product.name.toLowerCase().includes(term),
+            product.code?.toLowerCase().includes(term) || product.name.toLowerCase().includes(term),
         )
       : all;
   }, [products.data, search]);
@@ -79,9 +79,18 @@ export default function MerchantProductsPage() {
     onError: () => toast.error('Could not delete the product'),
   });
 
+  const status: ListStatus = products.isPending
+    ? 'pending'
+    : products.isError
+      ? 'error'
+      : rows.length === 0
+        ? 'empty'
+        : 'ready';
+
   return (
     <div className="flex flex-col gap-5">
       <PageHeader
+        eyebrowClassName="hidden md:block"
         eyebrow={
           <Link
             href="/merchants"
@@ -113,6 +122,8 @@ export default function MerchantProductsPage() {
         <Input
           placeholder="Search products"
           className="pl-10"
+          type="search"
+          enterKeyHint="search"
           aria-label="Search products"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
@@ -120,82 +131,105 @@ export default function MerchantProductsPage() {
       </div>
 
       <Card className="[--card-spacing:0px] py-0">
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <TableHead className="pl-5">Code</TableHead>
-              <TableHead>Name</TableHead>
-              <TableHead className="text-right">Last price</TableHead>
-              <TableHead className="w-24 pr-5" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {products.isPending ? (
-              Array.from({ length: 5 }, (_, index) => (
-                <TableRow key={index}>
-                  <TableCell colSpan={4} className="px-5">
-                    <Skeleton className="h-6 w-full" />
-                  </TableCell>
+        {status === 'ready' ? (
+          <>
+            <ListRowGroup className="md:hidden">
+              {rows.map((product) => (
+                <ListRow
+                  key={product.id}
+                  title={product.name}
+                  subtitle={
+                    product.code ? <span className="font-mono">{product.code}</span> : 'No code'
+                  }
+                  trailing={money(product.lastPriceMinor, product.currency)}
+                  actions={
+                    <>
+                      <DropdownMenuItem
+                        onSelect={() => {
+                          setEditing(product);
+                          setDialogOpen(true);
+                        }}
+                      >
+                        <Pencil />
+                        Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onSelect={() => setPendingDelete(product)}
+                      >
+                        <Trash2 />
+                        Delete
+                      </DropdownMenuItem>
+                    </>
+                  }
+                />
+              ))}
+            </ListRowGroup>
+
+            <Table className="hidden md:table">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="pl-5">Code</TableHead>
+                  <TableHead>Name</TableHead>
+                  <TableHead className="text-right">Last price</TableHead>
+                  <TableHead className="w-24 pr-5" />
                 </TableRow>
-              ))
-            ) : products.isError ? (
-              <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={4} className="py-14 text-center">
-                  <p className="text-sm font-medium">Cannot reach the API</p>
-                  <p className="text-muted-foreground mt-1 text-sm">
-                    Products could not be loaded.
-                  </p>
-                </TableCell>
-              </TableRow>
-            ) : rows.length === 0 ? (
-              <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={4} className="py-14 text-center">
-                  <p className="text-sm font-medium">
-                    {search ? 'Nothing here' : 'No products yet'}
-                  </p>
-                  <p className="text-muted-foreground mt-1 text-sm">
-                    {search
-                      ? 'No product matches that code or name.'
-                      : 'Add the things you buy here, along with the price you last paid.'}
-                  </p>
-                </TableCell>
-              </TableRow>
-            ) : (
-              rows.map((product) => (
-                <TableRow key={product.id} className="hover:bg-muted/50">
-                  <TableCell className="text-muted-foreground pl-5 font-mono text-xs">
-                    {product.code ?? '—'}
-                  </TableCell>
-                  <TableCell className="font-medium">{product.name}</TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {money(product.lastPriceMinor, product.currency)}
-                  </TableCell>
-                  <TableCell className="pr-5 text-right whitespace-nowrap">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`Edit ${product.name}`}
-                      onClick={() => {
-                        setEditing(product);
-                        setDialogOpen(true);
-                      }}
-                    >
-                      <Pencil />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`Delete ${product.name}`}
-                      onClick={() => setPendingDelete(product)}
-                    >
-                      <Trash2 />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+              </TableHeader>
+              <TableBody>
+                {rows.map((product) => (
+                  <TableRow key={product.id} className="hover:bg-muted/50">
+                    <TableCell className="text-muted-foreground pl-5 font-mono text-xs">
+                      {product.code ?? '—'}
+                    </TableCell>
+                    <TableCell className="font-medium">{product.name}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {money(product.lastPriceMinor, product.currency)}
+                    </TableCell>
+                    <TableCell className="pr-5 text-right whitespace-nowrap">
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Edit ${product.name}`}
+                        onClick={() => {
+                          setEditing(product);
+                          setDialogOpen(true);
+                        }}
+                      >
+                        <Pencil />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Delete ${product.name}`}
+                        onClick={() => setPendingDelete(product)}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </>
+        ) : (
+          <ListState
+            status={status}
+            title={
+              status === 'error'
+                ? 'Cannot reach the API'
+                : search
+                  ? 'Nothing here'
+                  : 'No products yet'
+            }
+            description={
+              status === 'error'
+                ? 'Products could not be loaded.'
+                : search
+                  ? 'No product matches that code or name.'
+                  : 'Add the things you buy here, along with the price you last paid.'
+            }
+          />
+        )}
       </Card>
 
       <ProductDialog

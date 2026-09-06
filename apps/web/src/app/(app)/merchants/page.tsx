@@ -1,7 +1,7 @@
 'use client';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { Pencil, Plus, Search, Store, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { merchantsRemove } from '@/api';
 import type { MerchantResponse } from '@/api';
 import { MerchantDialog } from '@/components/merchants/merchant-dialog';
+import { ListRow, ListRowGroup, ListState, type ListStatus } from '@/components/shell/list-row';
 import { PageHeader } from '@/components/shell/page-header';
 import {
   AlertDialog,
@@ -22,8 +23,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
   TableBody,
@@ -33,6 +34,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useMerchants } from '@/hooks/use-finance-queries';
+import { countLabel } from '@/lib/format';
 
 export default function MerchantsPage() {
   const [search, setSearch] = useState('');
@@ -64,6 +66,14 @@ export default function MerchantsPage() {
     onError: () => toast.error('Could not delete the merchant'),
   });
 
+  const status: ListStatus = merchants.isPending
+    ? 'pending'
+    : merchants.isError
+      ? 'error'
+      : rows.length === 0
+        ? 'empty'
+        : 'ready';
+
   return (
     <div className="flex flex-col gap-5">
       <PageHeader
@@ -90,6 +100,8 @@ export default function MerchantsPage() {
         <Input
           placeholder="Search merchants"
           className="pl-10"
+          type="search"
+          enterKeyHint="search"
           aria-label="Search merchants"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
@@ -97,89 +109,116 @@ export default function MerchantsPage() {
       </div>
 
       <Card className="[--card-spacing:0px] py-0">
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <TableHead className="pl-5">Name</TableHead>
-              <TableHead className="text-right">Products</TableHead>
-              <TableHead className="text-right">Transactions</TableHead>
-              <TableHead className="w-24 pr-5" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {merchants.isPending ? (
-              Array.from({ length: 5 }, (_, index) => (
-                <TableRow key={index}>
-                  <TableCell colSpan={4} className="px-5">
-                    <Skeleton className="h-6 w-full" />
-                  </TableCell>
+        {status === 'ready' ? (
+          <>
+            {/* One branch is always `display:none`, so the inactive one is out of
+                the accessibility tree too and nothing is announced twice. */}
+            <ListRowGroup className="md:hidden">
+              {rows.map((merchant) => (
+                <ListRow
+                  key={merchant.id}
+                  href={`/merchants/${merchant.id}`}
+                  leading={<Store className="text-muted-foreground size-4" aria-hidden />}
+                  title={merchant.name}
+                  subtitle={`${countLabel(merchant.productCount, 'product')} · ${countLabel(
+                    merchant.transactionCount,
+                    'transaction',
+                  )}`}
+                  actions={
+                    <>
+                      <DropdownMenuItem
+                        onSelect={() => {
+                          setEditing(merchant);
+                          setDialogOpen(true);
+                        }}
+                      >
+                        <Pencil />
+                        Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onSelect={() => setPendingDelete(merchant)}
+                      >
+                        <Trash2 />
+                        Delete
+                      </DropdownMenuItem>
+                    </>
+                  }
+                />
+              ))}
+            </ListRowGroup>
+
+            <Table className="hidden md:table">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="pl-5">Name</TableHead>
+                  <TableHead className="text-right">Products</TableHead>
+                  <TableHead className="text-right">Transactions</TableHead>
+                  <TableHead className="w-24 pr-5" />
                 </TableRow>
-              ))
-            ) : merchants.isError ? (
-              <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={4} className="py-14 text-center">
-                  <p className="text-sm font-medium">Cannot reach the API</p>
-                  <p className="text-muted-foreground mt-1 text-sm">
-                    Merchants could not be loaded.
-                  </p>
-                </TableCell>
-              </TableRow>
-            ) : rows.length === 0 ? (
-              <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={4} className="py-14 text-center">
-                  <p className="text-sm font-medium">
-                    {search ? 'Nothing here' : 'No merchants yet'}
-                  </p>
-                  <p className="text-muted-foreground mt-1 text-sm">
-                    {search
-                      ? 'No merchant matches that name.'
-                      : 'Add the shops you buy from, then pick one when logging a transaction.'}
-                  </p>
-                </TableCell>
-              </TableRow>
-            ) : (
-              rows.map((merchant) => (
-                <TableRow key={merchant.id} className="hover:bg-muted/50">
-                  <TableCell className="pl-5 font-medium">
-                    <Link
-                      href={`/merchants/${merchant.id}`}
-                      className="hover:underline focus-visible:underline focus-visible:outline-none"
-                    >
-                      {merchant.name}
-                    </Link>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground text-right tabular-nums">
-                    {merchant.productCount}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground text-right tabular-nums">
-                    {merchant.transactionCount}
-                  </TableCell>
-                  <TableCell className="pr-5 text-right whitespace-nowrap">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`Edit ${merchant.name}`}
-                      onClick={() => {
-                        setEditing(merchant);
-                        setDialogOpen(true);
-                      }}
-                    >
-                      <Pencil />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`Delete ${merchant.name}`}
-                      onClick={() => setPendingDelete(merchant)}
-                    >
-                      <Trash2 />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+              </TableHeader>
+              <TableBody>
+                {rows.map((merchant) => (
+                  <TableRow key={merchant.id} className="hover:bg-muted/50">
+                    <TableCell className="pl-5 font-medium">
+                      <Link
+                        href={`/merchants/${merchant.id}`}
+                        className="hover:underline focus-visible:underline focus-visible:outline-none"
+                      >
+                        {merchant.name}
+                      </Link>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-right tabular-nums">
+                      {merchant.productCount}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-right tabular-nums">
+                      {merchant.transactionCount}
+                    </TableCell>
+                    <TableCell className="pr-5 text-right whitespace-nowrap">
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Edit ${merchant.name}`}
+                        onClick={() => {
+                          setEditing(merchant);
+                          setDialogOpen(true);
+                        }}
+                      >
+                        <Pencil />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Delete ${merchant.name}`}
+                        onClick={() => setPendingDelete(merchant)}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </>
+        ) : (
+          <ListState
+            status={status}
+            title={
+              status === 'error'
+                ? 'Cannot reach the API'
+                : search
+                  ? 'Nothing here'
+                  : 'No merchants yet'
+            }
+            description={
+              status === 'error'
+                ? 'Merchants could not be loaded.'
+                : search
+                  ? 'No merchant matches that name.'
+                  : 'Add the shops you buy from, then pick one when logging a transaction.'
+            }
+          />
+        )}
       </Card>
 
       <MerchantDialog merchant={editing} open={dialogOpen} onOpenChange={setDialogOpen} />
@@ -196,17 +235,16 @@ export default function MerchantsPage() {
                 ? `${pendingDelete.name}. ${
                     pendingDelete.transactionCount === 0
                       ? 'No transactions point at it.'
-                      : `${pendingDelete.transactionCount} transaction${
-                          pendingDelete.transactionCount === 1 ? '' : 's'
-                        } will stay, with no merchant.`
+                      : `${countLabel(
+                          pendingDelete.transactionCount,
+                          'transaction',
+                        )} will stay, with no merchant.`
                   }${
                     // Products cascade rather than detach, so say so — this is the
                     // one part of the deletion that actually destroys data.
                     pendingDelete.productCount === 0
                       ? ''
-                      : ` Its ${pendingDelete.productCount} product${
-                          pendingDelete.productCount === 1 ? '' : 's'
-                        } will be deleted.`
+                      : ` Its ${countLabel(pendingDelete.productCount, 'product')} will be deleted.`
                   } This cannot be undone.`
                 : null}
             </AlertDialogDescription>

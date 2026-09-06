@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogClose,
+  DialogBody,
   DialogContent,
   DialogFooter,
   DialogHeader,
@@ -305,207 +306,211 @@ export const TransactionItemDialog = ({
         </DialogHeader>
 
         <form
-          className="space-y-4"
+          className="flex min-h-0 flex-1 flex-col gap-4"
           onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
         >
-          <div className="grid gap-2">
-            <Label htmlFor="name">Name</Label>
-            <Controller
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <ProductCombobox
-                  id="name"
-                  placeholder="Indomie Goreng"
-                  value={field.value}
-                  onBlur={field.onBlur}
-                  products={selectableProducts}
-                  onValueChange={(name) => {
-                    field.onChange(name);
-                    // Typed text wins over the pick it replaces: what the box says
-                    // is what gets catalogued.
-                    form.setValue('productId', '');
-                  }}
-                  onSelectProduct={(picked) => {
-                    // Prefill from the catalogue, then leave it alone — these are
-                    // starting points for a snapshot, not a live binding.
-                    field.onChange(picked.name);
-                    form.setValue('productId', picked.id);
-                    form.setValue('unitPrice', fromMinor(picked.lastPriceMinor, picked.currency));
-                    if (picked.category) form.setValue('categoryId', picked.category.id);
-                  }}
-                  aria-invalid={Boolean(form.formState.errors.name)}
-                />
+          <DialogBody className="space-y-4">
+            <div className="grid gap-2">
+              <Label htmlFor="name">Name</Label>
+              <Controller
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <ProductCombobox
+                    id="name"
+                    placeholder="Indomie Goreng"
+                    value={field.value}
+                    onBlur={field.onBlur}
+                    products={selectableProducts}
+                    onValueChange={(name) => {
+                      field.onChange(name);
+                      // Typed text wins over the pick it replaces: what the box says
+                      // is what gets catalogued.
+                      form.setValue('productId', '');
+                    }}
+                    onSelectProduct={(picked) => {
+                      // Prefill from the catalogue, then leave it alone — these are
+                      // starting points for a snapshot, not a live binding.
+                      field.onChange(picked.name);
+                      form.setValue('productId', picked.id);
+                      form.setValue('unitPrice', fromMinor(picked.lastPriceMinor, picked.currency));
+                      if (picked.category) form.setValue('categoryId', picked.category.id);
+                    }}
+                    aria-invalid={Boolean(form.formState.errors.name)}
+                  />
+                )}
+              />
+              {form.formState.errors.name ? (
+                <p className="text-destructive text-xs">{form.formState.errors.name.message}</p>
+              ) : (
+                <p className="text-muted-foreground text-xs">{catalogueHint}</p>
               )}
-            />
-            {form.formState.errors.name ? (
-              <p className="text-destructive text-xs">{form.formState.errors.name.message}</p>
-            ) : (
-              <p className="text-muted-foreground text-xs">{catalogueHint}</p>
-            )}
-          </div>
-
-          <div className="grid gap-2">
-            <Label htmlFor="categoryId">Category</Label>
-            <Controller
-              control={form.control}
-              name="categoryId"
-              render={({ field }) => (
-                <Select value={field.value || undefined} onValueChange={field.onChange}>
-                  <SelectTrigger id="categoryId" className="w-full">
-                    <SelectValue placeholder="Pick a category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {pickableCategories.length === 0 ? (
-                      <p className="text-muted-foreground max-w-64 px-2 py-1.5 text-sm">
-                        {noCategoriesOfKindReason(transaction.type)}
-                      </p>
-                    ) : null}
-                    {pickableCategories.map((category) => (
-                      <SelectItem key={category.id} value={category.id}>
-                        <span
-                          className="size-2.5 shrink-0 rounded-full"
-                          style={{ background: category.color ?? 'var(--muted-foreground)' }}
-                          aria-hidden
-                        />
-                        {category.name}
-                        {/* Two categories may share a name across wallets, so the
-                            account tells them apart. Radix clones the item's text
-                            into the trigger — hide it there. */}
-                        <span className="text-muted-foreground ml-auto pl-3 text-xs [[data-slot=select-trigger]_&]:hidden">
-                          {category.accountName ?? '—'}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            />
-            {form.formState.errors.categoryId ? (
-              <p className="text-destructive text-xs">{form.formState.errors.categoryId.message}</p>
-            ) : pickableCategories.length === 0 ? (
-              // Nothing to pick means the line cannot be saved at all, so say the
-              // way out here rather than leaving it to a rejected submit.
-              <p className="text-muted-foreground text-xs">
-                {noCategoriesOfKindReason(transaction.type)}
-              </p>
-            ) : null}
-          </div>
-
-          <div className="grid gap-2">
-            {/* The quantity gets a fixed column wide enough for its own label; the
-                money field takes everything left over. */}
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-[6.5rem_1fr] sm:gap-3">
-              <div className="grid gap-2">
-                <Label htmlFor="quantity">Quantity</Label>
-                <Input
-                  id="quantity"
-                  type="number"
-                  min={1}
-                  step={1}
-                  {...form.register('quantity', { valueAsNumber: true })}
-                  aria-invalid={Boolean(form.formState.errors.quantity)}
-                />
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="unitPrice">Unit price</Label>
-                <Controller
-                  control={form.control}
-                  name="unitPrice"
-                  render={({ field }) => (
-                    <CurrencyInput
-                      id="unitPrice"
-                      currency={transaction.currency}
-                      name={field.name}
-                      value={field.value}
-                      onChange={field.onChange}
-                      onBlur={field.onBlur}
-                      aria-invalid={Boolean(form.formState.errors.unitPrice)}
-                    />
-                  )}
-                />
-              </div>
-
             </div>
 
-            {/* Below the row, at full width: a message has no room inside a 2.75rem
+            <div className="grid gap-2">
+              <Label htmlFor="categoryId">Category</Label>
+              <Controller
+                control={form.control}
+                name="categoryId"
+                render={({ field }) => (
+                  <Select value={field.value || undefined} onValueChange={field.onChange}>
+                    <SelectTrigger id="categoryId" className="w-full">
+                      <SelectValue placeholder="Pick a category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {pickableCategories.length === 0 ? (
+                        <p className="text-muted-foreground max-w-64 px-2 py-1.5 text-sm">
+                          {noCategoriesOfKindReason(transaction.type)}
+                        </p>
+                      ) : null}
+                      {pickableCategories.map((category) => (
+                        <SelectItem key={category.id} value={category.id}>
+                          <span
+                            className="size-2.5 shrink-0 rounded-full"
+                            style={{ background: category.color ?? 'var(--muted-foreground)' }}
+                            aria-hidden
+                          />
+                          {category.name}
+                          {/* Two categories may share a name across wallets, so the
+                            account tells them apart. Radix clones the item's text
+                            into the trigger — hide it there. */}
+                          <span className="text-muted-foreground ml-auto pl-3 text-xs [[data-slot=select-trigger]_&]:hidden">
+                            {category.accountName ?? '—'}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              {form.formState.errors.categoryId ? (
+                <p className="text-destructive text-xs">
+                  {form.formState.errors.categoryId.message}
+                </p>
+              ) : pickableCategories.length === 0 ? (
+                // Nothing to pick means the line cannot be saved at all, so say the
+                // way out here rather than leaving it to a rejected submit.
+                <p className="text-muted-foreground text-xs">
+                  {noCategoriesOfKindReason(transaction.type)}
+                </p>
+              ) : null}
+            </div>
+
+            <div className="grid gap-2">
+              {/* The quantity gets a fixed column wide enough for its own label; the
+                money field takes everything left over. */}
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-[6.5rem_1fr] sm:gap-3">
+                <div className="grid gap-2">
+                  <Label htmlFor="quantity">Quantity</Label>
+                  <Input
+                    id="quantity"
+                    type="number"
+                    min={1}
+                    step={1}
+                    {...form.register('quantity', { valueAsNumber: true })}
+                    aria-invalid={Boolean(form.formState.errors.quantity)}
+                  />
+                </div>
+
+                <div className="grid gap-2">
+                  <Label htmlFor="unitPrice">Unit price</Label>
+                  <Controller
+                    control={form.control}
+                    name="unitPrice"
+                    render={({ field }) => (
+                      <CurrencyInput
+                        id="unitPrice"
+                        currency={transaction.currency}
+                        name={field.name}
+                        value={field.value}
+                        onChange={field.onChange}
+                        onBlur={field.onBlur}
+                        aria-invalid={Boolean(form.formState.errors.unitPrice)}
+                      />
+                    )}
+                  />
+                </div>
+              </div>
+
+              {/* Below the row, at full width: a message has no room inside a 2.75rem
                 column. */}
-            {form.formState.errors.quantity ? (
-              <p className="text-destructive text-xs">{form.formState.errors.quantity.message}</p>
-            ) : null}
-            {form.formState.errors.unitPrice ? (
-              <p className="text-destructive text-xs">{form.formState.errors.unitPrice.message}</p>
-            ) : null}
-          </div>
+              {form.formState.errors.quantity ? (
+                <p className="text-destructive text-xs">{form.formState.errors.quantity.message}</p>
+              ) : null}
+              {form.formState.errors.unitPrice ? (
+                <p className="text-destructive text-xs">
+                  {form.formState.errors.unitPrice.message}
+                </p>
+              ) : null}
+            </div>
 
-          <div className="grid gap-2">
-            <Label>Discounts</Label>
-            <Controller
-              control={form.control}
-              name="discounts"
-              render={({ field }) => (
-                <LineDiscountsField
-                  rows={field.value as DiscountRow[]}
-                  onChange={field.onChange}
-                  currency={transaction.currency}
-                  idPrefix="line-discount"
-                />
-              )}
-            />
-            {(discounts ?? []).length > 1 ? (
-              <p className="text-muted-foreground text-xs">
-                Each one comes off what the one above it left, in this order.
-              </p>
-            ) : null}
-          </div>
+            <div className="grid gap-2">
+              <Label>Discounts</Label>
+              <Controller
+                control={form.control}
+                name="discounts"
+                render={({ field }) => (
+                  <LineDiscountsField
+                    rows={field.value as DiscountRow[]}
+                    onChange={field.onChange}
+                    currency={transaction.currency}
+                    idPrefix="line-discount"
+                  />
+                )}
+              />
+              {(discounts ?? []).length > 1 ? (
+                <p className="text-muted-foreground text-xs">
+                  Each one comes off what the one above it left, in this order.
+                </p>
+              ) : null}
+            </div>
 
-          <div className="bg-muted grid gap-1.5 rounded-xl px-4 py-3 text-sm">
-            {/* Only worth the working when there is something to subtract; an
+            <div className="bg-muted grid gap-1.5 rounded-xl px-4 py-3 text-sm">
+              {/* Only worth the working when there is something to subtract; an
                 undiscounted line just states its total. Each row shows what that
                 discount is actually worth here, which is not what its rate alone
                 would suggest once anything sits above it. */}
-            {cascaded.discountMinor !== 0 ? (
-              <>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Before discount</span>
-                  <span className="tabular-nums">{money(grossMinor, transaction.currency)}</span>
-                </div>
-                {cascaded.discounts.map((discount, index) => (
-                  <div key={index} className="flex items-center justify-between">
-                    <span className="text-muted-foreground">
-                      {(discounts ?? [])[index]?.name.trim() || `Discount ${index + 1}`}
-                      {discount.basisPoints !== null ? (
-                        <span className="ml-1.5 text-xs">
-                          {basisPointsToPercent(discount.basisPoints)}%
-                        </span>
-                      ) : null}
-                    </span>
-                    <span className="tabular-nums">
-                      −{money(discount.amountMinor, transaction.currency)}
-                    </span>
+              {cascaded.discountMinor !== 0 ? (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Before discount</span>
+                    <span className="tabular-nums">{money(grossMinor, transaction.currency)}</span>
                   </div>
-                ))}
-              </>
-            ) : null}
-            <div
-              className={cn(
-                'flex items-center justify-between font-semibold',
-                cascaded.discountMinor !== 0 && 'border-t pt-1.5',
-              )}
-            >
-              <span>Line total</span>
-              <span className="tabular-nums">
-                {money(cascaded.lineTotalMinor, transaction.currency)}
-              </span>
+                  {cascaded.discounts.map((discount, index) => (
+                    <div key={index} className="flex items-center justify-between">
+                      <span className="text-muted-foreground">
+                        {(discounts ?? [])[index]?.name.trim() || `Discount ${index + 1}`}
+                        {discount.basisPoints !== null ? (
+                          <span className="ml-1.5 text-xs">
+                            {basisPointsToPercent(discount.basisPoints)}%
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="tabular-nums">
+                        −{money(discount.amountMinor, transaction.currency)}
+                      </span>
+                    </div>
+                  ))}
+                </>
+              ) : null}
+              <div
+                className={cn(
+                  'flex items-center justify-between font-semibold',
+                  cascaded.discountMinor !== 0 && 'border-t pt-1.5',
+                )}
+              >
+                <span>Line total</span>
+                <span className="tabular-nums">
+                  {money(cascaded.lineTotalMinor, transaction.currency)}
+                </span>
+              </div>
+              {isOverDiscounted ? (
+                <p className="text-destructive text-xs">
+                  These discounts come to more than the line is worth.
+                </p>
+              ) : null}
             </div>
-            {isOverDiscounted ? (
-              <p className="text-destructive text-xs">
-                These discounts come to more than the line is worth.
-              </p>
-            ) : null}
-          </div>
-
+          </DialogBody>
           <DialogFooter>
             <DialogClose asChild>
               <Button type="button" variant="ghost">

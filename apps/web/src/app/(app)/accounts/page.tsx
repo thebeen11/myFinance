@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { accountsRemove, accountsUpdate } from '@/api';
 import type { AccountResponse } from '@/api';
 import { AccountDialog } from '@/components/accounts/account-dialog';
+import { ListRow, ListRowGroup, ListState, type ListStatus } from '@/components/shell/list-row';
 import { PageHeader } from '@/components/shell/page-header';
 import {
   AlertDialog,
@@ -22,8 +23,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
-import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
   TableBody,
@@ -34,7 +35,7 @@ import {
 } from '@/components/ui/table';
 import { useAccounts, type AccountListQuery } from '@/hooks/use-finance-queries';
 import { accountIcon, accountTypeLabel } from '@/lib/account-meta';
-import { money } from '@/lib/format';
+import { countLabel, money } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 const PAGE_SIZE = 25;
@@ -50,18 +51,12 @@ const describeUsage = (account: AccountResponse): string => {
   const parts: string[] = [];
 
   if (account.transactionCount > 0) {
-    parts.push(
-      `${account.transactionCount} transaction${
-        account.transactionCount === 1 ? '' : 's'
-      } will be deleted with it`,
-    );
+    parts.push(`${countLabel(account.transactionCount, 'transaction')} will be deleted with it`);
   }
 
   if (account.categoryCount > 0) {
     parts.push(
-      `${account.categoryCount} categor${
-        account.categoryCount === 1 ? 'y' : 'ies'
-      } will be left unassigned`,
+      `${countLabel(account.categoryCount, 'category', 'categories')} will be left unassigned`,
     );
   }
 
@@ -125,6 +120,14 @@ export default function AccountsPage() {
     onError: () => toast.error('Could not delete the account'),
   });
 
+  const status: ListStatus = accounts.isPending
+    ? 'pending'
+    : accounts.isError
+      ? 'error'
+      : rows.length === 0
+        ? 'empty'
+        : 'ready';
+
   return (
     <div className="flex flex-col gap-5">
       <PageHeader
@@ -144,7 +147,7 @@ export default function AccountsPage() {
       />
 
       <div className="flex flex-wrap items-center gap-3">
-        <div className="relative min-w-0 flex-1 sm:max-w-xs sm:flex-none">
+        <div className="relative w-full min-w-0 sm:max-w-xs sm:flex-none">
           <Search
             className="text-muted-foreground pointer-events-none absolute inset-y-0 left-3.5 my-auto size-4"
             aria-hidden
@@ -152,6 +155,8 @@ export default function AccountsPage() {
           <Input
             placeholder="Search accounts"
             className="pl-10"
+            type="search"
+            enterKeyHint="search"
             aria-label="Search accounts"
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
@@ -176,125 +181,174 @@ export default function AccountsPage() {
       </div>
 
       <Card className="[--card-spacing:0px] py-0">
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <TableHead className="pl-5">Name</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead className="text-right">Balance</TableHead>
-              <TableHead className="text-right">Categories</TableHead>
-              <TableHead className="text-right">Transactions</TableHead>
-              <TableHead className="w-32 pr-5" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {accounts.isPending ? (
-              Array.from({ length: 4 }, (_, index) => (
-                <TableRow key={index}>
-                  <TableCell colSpan={6} className="px-5">
-                    <Skeleton className="h-6 w-full" />
-                  </TableCell>
-                </TableRow>
-              ))
-            ) : accounts.isError ? (
-              <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={6} className="py-14 text-center">
-                  <p className="text-sm font-medium">Cannot reach the API</p>
-                  <p className="text-muted-foreground mt-1 text-sm">
-                    Accounts could not be loaded.
-                  </p>
-                </TableCell>
-              </TableRow>
-            ) : rows.length === 0 ? (
-              <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={6} className="py-14 text-center">
-                  <p className="text-sm font-medium">
-                    {searchInput ? 'Nothing here' : 'No accounts yet'}
-                  </p>
-                  <p className="text-muted-foreground mt-1 text-sm">
-                    {searchInput
-                      ? 'No account matches that name.'
-                      : 'Add every place your money lives — cash, bank, e-wallets, cards.'}
-                  </p>
-                </TableCell>
-              </TableRow>
-            ) : (
-              rows.map((account) => {
+        {status === 'ready' ? (
+          <>
+            <ListRowGroup className="md:hidden">
+              {rows.map((account) => {
                 const Icon = accountIcon(account.type);
                 const isArchived = account.archivedAt !== null;
 
                 return (
-                  <TableRow
+                  <ListRow
                     key={account.id}
-                    className={cn('hover:bg-muted/50', isArchived && 'text-muted-foreground')}
-                  >
-                    <TableCell className="pl-5 font-medium">
-                      {/* The way into the account's own page, where its money is
-                          recorded and read. This list is master data only. */}
-                      <Link
-                        href={`/accounts/${account.id}`}
-                        className="flex items-center gap-2.5 hover:underline focus-visible:underline focus-visible:outline-none"
-                      >
-                        <Icon className="text-muted-foreground size-4 shrink-0" aria-hidden />
-                        {account.name}
-                        {isArchived ? (
-                          <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs font-medium">
-                            Archived
-                          </span>
-                        ) : null}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {accountTypeLabel(account.type)}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {money(account.balance.balanceMinor, account.currency)}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground text-right tabular-nums">
-                      {account.categoryCount}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground text-right tabular-nums">
-                      {account.transactionCount}
-                    </TableCell>
-                    <TableCell className="pr-5 text-right whitespace-nowrap">
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Edit ${account.name}`}
-                        onClick={() => {
-                          setEditing(account);
-                          setDialogOpen(true);
-                        }}
-                      >
-                        <Pencil />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        disabled={archival.isPending}
-                        aria-label={`${isArchived ? 'Restore' : 'Archive'} ${account.name}`}
-                        onClick={() => archival.mutate({ id: account.id, archived: !isArchived })}
-                      >
-                        {isArchived ? <ArchiveRestore /> : <Archive />}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Delete ${account.name}`}
-                        onClick={() => setPendingDelete(account)}
-                      >
-                        <Trash2 />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
+                    href={`/accounts/${account.id}`}
+                    isMuted={isArchived}
+                    leading={<Icon className="text-muted-foreground size-4" aria-hidden />}
+                    title={account.name}
+                    subtitle={`${accountTypeLabel(account.type)} · ${countLabel(
+                      account.transactionCount,
+                      'transaction',
+                    )} · ${countLabel(account.categoryCount, 'category', 'categories')}`}
+                    meta={
+                      isArchived ? (
+                        <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs font-medium">
+                          Archived
+                        </span>
+                      ) : null
+                    }
+                    trailing={money(account.balance.balanceMinor, account.currency)}
+                    actions={
+                      <>
+                        <DropdownMenuItem
+                          onSelect={() => {
+                            setEditing(account);
+                            setDialogOpen(true);
+                          }}
+                        >
+                          <Pencil />
+                          Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={archival.isPending}
+                          onSelect={() =>
+                            archival.mutate({ id: account.id, archived: !isArchived })
+                          }
+                        >
+                          {isArchived ? <ArchiveRestore /> : <Archive />}
+                          {isArchived ? 'Restore' : 'Archive'}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onSelect={() => setPendingDelete(account)}
+                        >
+                          <Trash2 />
+                          Delete
+                        </DropdownMenuItem>
+                      </>
+                    }
+                  />
                 );
-              })
-            )}
-          </TableBody>
-        </Table>
+              })}
+            </ListRowGroup>
+
+            <Table className="hidden md:table">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="pl-5">Name</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead className="text-right">Balance</TableHead>
+                  <TableHead className="text-right">Categories</TableHead>
+                  <TableHead className="text-right">Transactions</TableHead>
+                  <TableHead className="w-32 pr-5" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((account) => {
+                  const Icon = accountIcon(account.type);
+                  const isArchived = account.archivedAt !== null;
+
+                  return (
+                    <TableRow
+                      key={account.id}
+                      className={cn('hover:bg-muted/50', isArchived && 'text-muted-foreground')}
+                    >
+                      <TableCell className="pl-5 font-medium">
+                        {/* The way into the account's own page, where its money is
+                            recorded and read. This list is master data only. */}
+                        <Link
+                          href={`/accounts/${account.id}`}
+                          className="flex items-center gap-2.5 hover:underline focus-visible:underline focus-visible:outline-none"
+                        >
+                          <Icon className="text-muted-foreground size-4 shrink-0" aria-hidden />
+                          {account.name}
+                          {isArchived ? (
+                            <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs font-medium">
+                              Archived
+                            </span>
+                          ) : null}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {accountTypeLabel(account.type)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {money(account.balance.balanceMinor, account.currency)}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-right tabular-nums">
+                        {account.categoryCount}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-right tabular-nums">
+                        {account.transactionCount}
+                      </TableCell>
+                      <TableCell className="pr-5 text-right whitespace-nowrap">
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Edit ${account.name}`}
+                          onClick={() => {
+                            setEditing(account);
+                            setDialogOpen(true);
+                          }}
+                        >
+                          <Pencil />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          disabled={archival.isPending}
+                          aria-label={`${isArchived ? 'Restore' : 'Archive'} ${account.name}`}
+                          onClick={() => archival.mutate({ id: account.id, archived: !isArchived })}
+                        >
+                          {isArchived ? <ArchiveRestore /> : <Archive />}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Delete ${account.name}`}
+                          onClick={() => setPendingDelete(account)}
+                        >
+                          <Trash2 />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </>
+        ) : (
+          <ListState
+            status={status}
+            rows={4}
+            title={
+              status === 'error'
+                ? 'Cannot reach the API'
+                : searchInput
+                  ? 'Nothing here'
+                  : 'No accounts yet'
+            }
+            description={
+              status === 'error'
+                ? 'Accounts could not be loaded.'
+                : searchInput
+                  ? 'No account matches that name.'
+                  : 'Add every place your money lives — cash, bank, e-wallets, cards.'
+            }
+          />
+        )}
       </Card>
 
-      <div className="flex items-center justify-between gap-3 text-sm">
+      <div className="flex flex-col items-start gap-3 text-sm sm:flex-row sm:items-center sm:justify-between">
         <span className="text-muted-foreground tabular-nums">
           {total === 0
             ? 'No results'

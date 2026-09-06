@@ -17,6 +17,7 @@ import { ReceiptDraftReview } from '@/components/transactions/receipt-draft-revi
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -138,11 +139,10 @@ export const ReceiptScanDialog = ({
 
   const account = accounts.find((candidate) => candidate.id === accountId);
 
-
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+      <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{draft ? 'Check the receipt' : 'Scan a receipt'}</DialogTitle>
         </DialogHeader>
@@ -160,7 +160,7 @@ export const ReceiptScanDialog = ({
             onConfirm={(dto) => create.mutate(dto)}
           />
         ) : (
-          <div className="flex flex-col gap-4">
+          <DialogBody className="flex flex-col gap-4">
             <div className="grid gap-2">
               <Label htmlFor="scan-account">Paid from</Label>
               <Select
@@ -222,7 +222,7 @@ export const ReceiptScanDialog = ({
                 </Button>
               </>
             )}
-          </div>
+          </DialogBody>
         )}
       </DialogContent>
     </Dialog>

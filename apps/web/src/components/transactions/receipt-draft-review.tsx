@@ -8,7 +8,8 @@ import {
   percentToBasisPoints,
   toMinor,
 } from '@myfinance/shared';
-import { AlertTriangle, Trash2 } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Trash2 } from 'lucide-react';
+import { useState } from 'react';
 import { useFieldArray, useForm, useWatch, Controller } from 'react-hook-form';
 import { z } from 'zod';
 
@@ -27,6 +28,7 @@ import {
   type DiscountRow,
 } from '@/components/transactions/line-discounts-field';
 import { Button } from '@/components/ui/button';
+import { DialogBody, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -38,6 +40,7 @@ import {
 } from '@/components/ui/select';
 import { categoriesOfKind, noCategoriesOfKindReason } from '@/lib/category-selection';
 import { dateInputValue, money } from '@/lib/format';
+import { cn } from '@/lib/utils';
 
 /**
  * The scanned receipt, before it is a transaction.
@@ -128,6 +131,23 @@ export const ReceiptDraftReview = ({
   });
 
   const lines = useFieldArray({ control: form.control, name: 'lines' });
+
+  /**
+   * Which lines are open on a phone.
+   *
+   * A ten-line receipt is ~50 stacked fields; collapsed, it is a list you can
+   * read at a glance and open where it is wrong. Purely a mobile concern — from
+   * `sm` up the fields are laid out in a grid and every line stays expanded, so
+   * this state is ignored there rather than duplicated into a breakpoint hook.
+   */
+  const [expandedLines, setExpandedLines] = useState<ReadonlySet<string>>(new Set());
+
+  const toggleLine = (id: string) =>
+    setExpandedLines((current) => {
+      const next = new Set(current);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
   const charges = useFieldArray({ control: form.control, name: 'charges' });
 
   // `useWatch` rather than form.watch() — the React Compiler lint rule rejects
@@ -185,241 +205,290 @@ export const ReceiptDraftReview = ({
   };
 
   return (
-    <form className="flex flex-col gap-5" onSubmit={form.handleSubmit(handleSubmit)}>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="grid gap-2">
-          <Label htmlFor="receipt-merchant">Merchant</Label>
-          <Controller
-            control={form.control}
-            name="merchantId"
-            render={({ field }) => (
-              <MerchantField
-                id="receipt-merchant"
-                value={field.value}
-                onChange={field.onChange}
-                merchants={merchants}
-                suggestedName={draft.merchant.id ? null : draft.merchant.name}
-              />
-            )}
-          />
-          {/* The scan read a shop we have never seen. Saying so is more useful than
+    <form className="flex min-h-0 flex-1 flex-col" onSubmit={form.handleSubmit(handleSubmit)}>
+      <DialogBody className="flex flex-col gap-5">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-2">
+            <Label htmlFor="receipt-merchant">Merchant</Label>
+            <Controller
+              control={form.control}
+              name="merchantId"
+              render={({ field }) => (
+                <MerchantField
+                  id="receipt-merchant"
+                  value={field.value}
+                  onChange={field.onChange}
+                  merchants={merchants}
+                  suggestedName={draft.merchant.id ? null : draft.merchant.name}
+                />
+              )}
+            />
+            {/* The scan read a shop we have never seen. Saying so is more useful than
               an empty picker, and Add turns the printed name into a merchant right
               here, rather than sending the reviewer off to lose this draft. It goes
               once something is picked — including the merchant just created from it,
               which would otherwise still be described as missing. */}
-          {!draft.merchant.id && draft.merchant.name && watchedMerchantId === NO_MERCHANT ? (
-            <p className="text-muted-foreground text-xs">
-              Read as “{draft.merchant.name}”, which is not in your merchants yet — Add creates it.
-            </p>
-          ) : null}
+            {!draft.merchant.id && draft.merchant.name && watchedMerchantId === NO_MERCHANT ? (
+              <p className="text-muted-foreground text-xs">
+                Read as “{draft.merchant.name}”, which is not in your merchants yet — Add creates
+                it.
+              </p>
+            ) : null}
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="receipt-date">Date</Label>
+            <Input id="receipt-date" type="date" {...form.register('occurredAt')} />
+            {form.formState.errors.occurredAt ? (
+              <p className="text-destructive text-xs">{form.formState.errors.occurredAt.message}</p>
+            ) : null}
+          </div>
+
+          <div className="grid gap-2 sm:col-span-2">
+            <Label htmlFor="receipt-description">Description</Label>
+            <Input id="receipt-description" {...form.register('description')} />
+          </div>
         </div>
 
-        <div className="grid gap-2">
-          <Label htmlFor="receipt-date">Date</Label>
-          <Input id="receipt-date" type="date" {...form.register('occurredAt')} />
-          {form.formState.errors.occurredAt ? (
-            <p className="text-destructive text-xs">{form.formState.errors.occurredAt.message}</p>
-          ) : null}
-        </div>
+        <div className="flex flex-col gap-3">
+          <div className="flex items-baseline justify-between">
+            <h3 className="text-sm font-medium">Lines</h3>
+            <span className="text-muted-foreground text-xs">
+              {lines.fields.length} read from the photo
+            </span>
+          </div>
 
-        <div className="grid gap-2 sm:col-span-2">
-          <Label htmlFor="receipt-description">Description</Label>
-          <Input id="receipt-description" {...form.register('description')} />
-        </div>
-      </div>
+          {lines.fields.map((field, index) => {
+            const values = watchedLines?.[index] ?? field;
+            const isOpen = expandedLines.has(field.id);
 
-      <div className="flex flex-col gap-3">
-        <div className="flex items-baseline justify-between">
-          <h3 className="text-sm font-medium">Lines</h3>
-          <span className="text-muted-foreground text-xs">
-            {lines.fields.length} read from the photo
-          </span>
-        </div>
-
-        {lines.fields.map((field, index) => (
-          <div key={field.id} className="bg-muted grid gap-3 rounded-lg p-3 sm:grid-cols-12">
-            <div className="grid gap-2 sm:col-span-5">
-              <Label htmlFor={`line-name-${index}`} className="text-xs">
-                Item
-              </Label>
-              <Input id={`line-name-${index}`} {...form.register(`lines.${index}.name`)} />
-            </div>
-
-            <div className="grid gap-2 sm:col-span-2">
-              <Label htmlFor={`line-qty-${index}`} className="text-xs">
-                Qty
-              </Label>
-              <Input
-                id={`line-qty-${index}`}
-                type="number"
-                min={1}
-                className="text-right tabular-nums"
-                {...form.register(`lines.${index}.quantity`, { valueAsNumber: true })}
-              />
-            </div>
-
-            <div className="grid gap-2 sm:col-span-5">
-              <Label htmlFor={`line-price-${index}`} className="text-xs">
-                Unit price
-              </Label>
-              <Controller
-                control={form.control}
-                name={`lines.${index}.unitPrice`}
-                render={({ field: priceField }) => (
-                  <CurrencyInput
-                    id={`line-price-${index}`}
-                    currency={currency}
-                    value={priceField.value}
-                    onChange={priceField.onChange}
-                    onBlur={priceField.onBlur}
+            return (
+              <div key={field.id} className="bg-muted rounded-lg p-3">
+                {/* The collapsed face of the line, on a phone only. */}
+                <button
+                  type="button"
+                  aria-expanded={isOpen}
+                  onClick={() => toggleLine(field.id)}
+                  className="flex w-full items-center gap-3 text-left sm:hidden"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">
+                      {values.name || `Line ${index + 1}`}
+                    </span>
+                    <span className="text-muted-foreground block truncate text-xs">
+                      {values.quantity} ×{' '}
+                      {money(toMinor(values.unitPrice ?? 0, currency), currency)}
+                      {values.categoryId ? '' : ' · needs a category'}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-sm font-medium tabular-nums">
+                    {money(lineTotalMinor(values), currency)}
+                  </span>
+                  <ChevronDown
+                    className={cn('size-4 shrink-0 transition-transform', isOpen && 'rotate-180')}
+                    aria-hidden
                   />
-                )}
-              />
-            </div>
+                </button>
 
-            <div className="grid gap-2 sm:col-span-8">
-              <Label htmlFor={`line-category-${index}`} className="text-xs">
-                Category
-              </Label>
-              <Controller
-                control={form.control}
-                name={`lines.${index}.categoryId`}
-                render={({ field: categoryField }) => (
-                  <Select
-                    value={categoryField.value || undefined}
-                    onValueChange={categoryField.onChange}
-                    disabled={expenseCategories.length === 0}
-                  >
-                    <SelectTrigger id={`line-category-${index}`}>
-                      <SelectValue placeholder="Pick a category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {expenseCategories.map((category) => (
-                        <SelectItem key={category.id} value={category.id}>
-                          {category.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-            </div>
+                <div
+                  className={cn(
+                    'grid gap-3 sm:grid-cols-12',
+                    isOpen ? 'max-sm:mt-3' : 'max-sm:hidden',
+                  )}
+                >
+                  <div className="grid gap-2 sm:col-span-5">
+                    <Label htmlFor={`line-name-${index}`} className="text-xs">
+                      Item
+                    </Label>
+                    <Input id={`line-name-${index}`} {...form.register(`lines.${index}.name`)} />
+                  </div>
 
-            <div className="flex items-end justify-between gap-2 sm:col-span-4">
-              <span className="text-sm tabular-nums">
-                {money(lineTotalMinor(watchedLines?.[index] ?? field), currency)}
-              </span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label={`Remove ${field.name}`}
-                onClick={() => lines.remove(index)}
-              >
-                <Trash2 />
-              </Button>
-            </div>
+                  <div className="grid gap-2 sm:col-span-2">
+                    <Label htmlFor={`line-qty-${index}`} className="text-xs">
+                      Qty
+                    </Label>
+                    <Input
+                      id={`line-qty-${index}`}
+                      type="number"
+                      min={1}
+                      className="text-right tabular-nums"
+                      {...form.register(`lines.${index}.quantity`, { valueAsNumber: true })}
+                    />
+                  </div>
 
-            {/* Full width, below the line it belongs to: several discounts stacked
+                  <div className="grid gap-2 sm:col-span-5">
+                    <Label htmlFor={`line-price-${index}`} className="text-xs">
+                      Unit price
+                    </Label>
+                    <Controller
+                      control={form.control}
+                      name={`lines.${index}.unitPrice`}
+                      render={({ field: priceField }) => (
+                        <CurrencyInput
+                          id={`line-price-${index}`}
+                          currency={currency}
+                          value={priceField.value}
+                          onChange={priceField.onChange}
+                          onBlur={priceField.onBlur}
+                        />
+                      )}
+                    />
+                  </div>
+
+                  <div className="grid gap-2 sm:col-span-8">
+                    <Label htmlFor={`line-category-${index}`} className="text-xs">
+                      Category
+                    </Label>
+                    <Controller
+                      control={form.control}
+                      name={`lines.${index}.categoryId`}
+                      render={({ field: categoryField }) => (
+                        <Select
+                          value={categoryField.value || undefined}
+                          onValueChange={categoryField.onChange}
+                          disabled={expenseCategories.length === 0}
+                        >
+                          <SelectTrigger id={`line-category-${index}`}>
+                            <SelectValue placeholder="Pick a category" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {expenseCategories.map((category) => (
+                              <SelectItem key={category.id} value={category.id}>
+                                {category.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </div>
+
+                  <div className="flex items-end justify-between gap-2 sm:col-span-4">
+                    <span className="text-sm tabular-nums">
+                      {money(lineTotalMinor(values), currency)}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Remove ${field.name}`}
+                      onClick={() => lines.remove(index)}
+                    >
+                      <Trash2 />
+                    </Button>
+                  </div>
+
+                  {/* Full width, below the line it belongs to: several discounts stacked
                 in a two-column cell would have nowhere to put their labels, and
                 the order they are listed in is what the money depends on. */}
-            <div className="grid gap-2 sm:col-span-12">
-              <Label className="text-xs">Discounts</Label>
-              <Controller
-                control={form.control}
-                name={`lines.${index}.discounts`}
-                render={({ field: discountsField }) => (
-                  <LineDiscountsField
-                    rows={discountsField.value as DiscountRow[]}
-                    onChange={discountsField.onChange}
-                    currency={currency}
-                    idPrefix={`line-discount-${index}`}
-                    compact
-                  />
-                )}
-              />
-            </div>
-          </div>
-        ))}
-
-        {form.formState.errors.lines?.message ? (
-          <p className="text-destructive text-xs">{form.formState.errors.lines.message}</p>
-        ) : null}
-
-        {expenseCategories.length === 0 ? (
-          <p className="text-destructive text-xs">{noCategoriesOfKindReason('EXPENSE')}</p>
-        ) : null}
-      </div>
-
-      {charges.fields.length > 0 ? (
-        <div className="flex flex-col gap-3">
-          <h3 className="text-sm font-medium">Charges</h3>
-
-          {charges.fields.map((field, index) => (
-            <div key={field.id} className="bg-muted grid gap-3 rounded-lg p-3 sm:grid-cols-12">
-              <div className="grid gap-2 sm:col-span-6">
-                <Label htmlFor={`charge-name-${index}`} className="text-xs">
-                  Charge
-                </Label>
-                <Input id={`charge-name-${index}`} {...form.register(`charges.${index}.name`)} />
-              </div>
-
-              <div className="grid gap-2 sm:col-span-4">
-                <Label htmlFor={`charge-amount-${index}`} className="text-xs">
-                  Amount
-                </Label>
-                <Controller
-                  control={form.control}
-                  name={`charges.${index}.amount`}
-                  render={({ field: amountField }) => (
-                    <CurrencyInput
-                      id={`charge-amount-${index}`}
-                      currency={currency}
-                      value={amountField.value}
-                      onChange={amountField.onChange}
-                      onBlur={amountField.onBlur}
+                  <div className="grid gap-2 sm:col-span-12">
+                    <Label className="text-xs">Discounts</Label>
+                    <Controller
+                      control={form.control}
+                      name={`lines.${index}.discounts`}
+                      render={({ field: discountsField }) => (
+                        <LineDiscountsField
+                          rows={discountsField.value as DiscountRow[]}
+                          onChange={discountsField.onChange}
+                          currency={currency}
+                          idPrefix={`line-discount-${index}`}
+                          compact
+                        />
+                      )}
                     />
-                  )}
-                />
+                  </div>
+                </div>
               </div>
+            );
+          })}
 
-              <div className="flex items-end justify-end sm:col-span-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  aria-label={`Remove ${field.name}`}
-                  onClick={() => charges.remove(index)}
-                >
-                  <Trash2 />
-                </Button>
-              </div>
-            </div>
-          ))}
+          {form.formState.errors.lines?.message ? (
+            <p className="text-destructive text-xs">{form.formState.errors.lines.message}</p>
+          ) : null}
+
+          {expenseCategories.length === 0 ? (
+            <p className="text-destructive text-xs">{noCategoriesOfKindReason('EXPENSE')}</p>
+          ) : null}
         </div>
-      ) : null}
 
-      {/* The one thing a reviewer cannot check by eye: whether the parts add up to
+        {charges.fields.length > 0 ? (
+          <div className="flex flex-col gap-3">
+            <h3 className="text-sm font-medium">Charges</h3>
+
+            {charges.fields.map((field, index) => (
+              <div key={field.id} className="bg-muted grid gap-3 rounded-lg p-3 sm:grid-cols-12">
+                <div className="grid gap-2 sm:col-span-6">
+                  <Label htmlFor={`charge-name-${index}`} className="text-xs">
+                    Charge
+                  </Label>
+                  <Input id={`charge-name-${index}`} {...form.register(`charges.${index}.name`)} />
+                </div>
+
+                <div className="grid gap-2 sm:col-span-4">
+                  <Label htmlFor={`charge-amount-${index}`} className="text-xs">
+                    Amount
+                  </Label>
+                  <Controller
+                    control={form.control}
+                    name={`charges.${index}.amount`}
+                    render={({ field: amountField }) => (
+                      <CurrencyInput
+                        id={`charge-amount-${index}`}
+                        currency={currency}
+                        value={amountField.value}
+                        onChange={amountField.onChange}
+                        onBlur={amountField.onBlur}
+                      />
+                    )}
+                  />
+                </div>
+
+                <div className="flex items-end justify-end sm:col-span-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label={`Remove ${field.name}`}
+                    onClick={() => charges.remove(index)}
+                  >
+                    <Trash2 />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {/* The one thing a reviewer cannot check by eye: whether the parts add up to
           the figure the receipt itself prints. A mismatch names the gap rather
           than blocking the save — the printed total can be the thing misread. */}
-      {printedTotalMinor !== null && difference !== 0 ? (
-        <div className="border-destructive/40 flex items-start gap-2 rounded-lg border p-3">
-          <AlertTriangle className="text-destructive mt-0.5 size-4 shrink-0" aria-hidden />
-          <p className="text-xs">
-            These lines come to {money(derivedTotalMinor, currency)}, but the receipt prints{' '}
-            {money(printedTotalMinor, currency)} — a gap of {money(Math.abs(difference), currency)}.
-            Check the highlighted figures before saving.
-          </p>
-        </div>
-      ) : null}
+        {printedTotalMinor !== null && difference !== 0 ? (
+          <div className="border-destructive/40 flex items-start gap-2 rounded-lg border p-3">
+            <AlertTriangle className="text-destructive mt-0.5 size-4 shrink-0" aria-hidden />
+            <p className="text-xs">
+              These lines come to {money(derivedTotalMinor, currency)}, but the receipt prints{' '}
+              {money(printedTotalMinor, currency)} — a gap of{' '}
+              {money(Math.abs(difference), currency)}. Check the highlighted figures before saving.
+            </p>
+          </div>
+        ) : null}
+      </DialogBody>
 
-      <div className="flex items-center justify-between gap-3">
+      {/* `flex-col`, not the footer's default `flex-col-reverse`: the total is
+          what the buttons are agreeing to, so it has to read above them. */}
+      <DialogFooter className="flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="text-sm">
           <span className="text-muted-foreground">Total</span>{' '}
           <span className="font-medium tabular-nums">{money(derivedTotalMinor, currency)}</span>
+          {missingCategoryCount > 0 ? (
+            <span className="text-muted-foreground block text-xs">
+              {missingCategoryCount} line{missingCategoryCount === 1 ? '' : 's'} still need a
+              category.
+            </span>
+          ) : null}
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 *:flex-1 sm:*:flex-none">
           <Button type="button" variant="outline" onClick={onBack} disabled={isSubmitting}>
             Retake
           </Button>
@@ -430,13 +499,7 @@ export const ReceiptDraftReview = ({
             {isSubmitting ? 'Saving…' : 'Save receipt'}
           </Button>
         </div>
-      </div>
-
-      {missingCategoryCount > 0 ? (
-        <p className="text-muted-foreground text-right text-xs">
-          {missingCategoryCount} line{missingCategoryCount === 1 ? '' : 's'} still need a category.
-        </p>
-      ) : null}
+      </DialogFooter>
     </form>
   );
 };

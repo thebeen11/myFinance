@@ -13,11 +13,17 @@ import { XIcon } from 'lucide-react';
  * centre, so it needs no separate dependency. Overlay, ring and duration are
  * copied from `ui/dialog.tsx` deliberately: that file is hand-tuned away from
  * the stock registry, and the two are meant to read as one family.
+ *
+ * Each side in `SIDES` carries its own axis and size, not just its animation: a
+ * bottom sheet is full-width and height-capped where an edge panel is full-height
+ * and width-capped, so the two cannot share a base.
  */
-
 const SIDES = {
-  left: 'left-0 data-open:slide-in-from-left data-closed:slide-out-to-left',
-  right: 'right-0 data-open:slide-in-from-right data-closed:slide-out-to-right',
+  left: 'inset-y-0 left-0 w-[min(20rem,85vw)] data-open:slide-in-from-left data-closed:slide-out-to-left',
+  right:
+    'inset-y-0 right-0 w-[min(20rem,85vw)] data-open:slide-in-from-right data-closed:slide-out-to-right',
+  bottom:
+    'inset-x-0 bottom-0 max-h-[85dvh] w-full rounded-t-3xl pb-[calc(1rem+var(--safe-b))] data-open:slide-in-from-bottom data-closed:slide-out-to-bottom',
 } as const;
 
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
@@ -68,7 +74,7 @@ function SheetContent({
       <SheetPrimitive.Content
         data-slot="sheet-content"
         className={cn(
-          'fixed inset-y-0 z-50 flex w-[min(20rem,85vw)] flex-col gap-6 bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none data-open:animate-in data-closed:animate-out',
+          'fixed z-50 flex flex-col gap-6 overflow-y-auto overscroll-contain bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-200 outline-none data-open:animate-in data-closed:animate-out',
           SIDES[side],
           className,
         )}

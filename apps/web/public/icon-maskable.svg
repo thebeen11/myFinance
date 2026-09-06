@@ -1,0 +1,13 @@
+<!--
+  The maskable variant. Android crops an icon to whatever shape the launcher uses,
+  so the mark sits inside the 80% safe circle and the green bleeds to every edge —
+  the rounded tile of icon.svg would have its corners shaved off and the roof of
+  the house clipped.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Erumah">
+  <rect width="512" height="512" fill="#45c06a"/>
+  <g transform="translate(153.6 153.6) scale(8.5333)" fill="none" stroke="#121a1a" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/>
+    <path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+  </g>
+</svg>

@@ -54,10 +54,7 @@ interface StoredDiscount {
  * @param discounts Rows carrying exactly one of `basisPoints` and `amountMinor`.
  * @param currency The line's currency, for scaling a lump sum to major units.
  */
-export const toDiscountRows = (
-  discounts: StoredDiscount[],
-  currency: string,
-): DiscountRow[] =>
+export const toDiscountRows = (discounts: StoredDiscount[], currency: string): DiscountRow[] =>
   discounts.map((discount) => ({
     name: discount.name ?? '',
     kind: discount.basisPoints == null ? 'amount' : 'percent',
@@ -120,8 +117,11 @@ export const LineDiscountsField = ({
       {rows.map((row, index) => (
         // Index as the key: these rows have no identity of their own and are
         // never reordered, only appended to and removed from the end inwards.
-        <div key={index} className="flex items-end gap-2">
-          <div className="grid min-w-0 flex-1 gap-1.5">
+        // `w-24` + `w-32` of fixed columns left the label field ~60px inside a
+        // 358px dialog, so below `sm` the label takes its own row and the kind
+        // and value share the next.
+        <div key={index} className="grid grid-cols-[1fr_1fr_auto] items-end gap-2 sm:flex">
+          <div className="col-span-3 grid min-w-0 gap-1.5 sm:col-span-1 sm:flex-1">
             {!compact && index === 0 ? (
               <span className="text-muted-foreground text-xs">Label</span>
             ) : null}
@@ -133,7 +133,7 @@ export const LineDiscountsField = ({
             />
           </div>
 
-          <div className="grid w-24 shrink-0 gap-1.5">
+          <div className="grid gap-1.5 sm:w-24 sm:shrink-0">
             {!compact && index === 0 ? (
               <span className="text-muted-foreground text-xs">Off by</span>
             ) : null}
@@ -156,7 +156,7 @@ export const LineDiscountsField = ({
             </Select>
           </div>
 
-          <div className="grid w-32 shrink-0 gap-1.5">
+          <div className="grid gap-1.5 sm:w-32 sm:shrink-0">
             {!compact && index === 0 ? (
               <span className="text-muted-foreground text-xs">Value</span>
             ) : null}

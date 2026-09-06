@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 
 import { transactionsRemove } from '@/api';
 import type { TransactionResponse } from '@/api';
+import { ListRow, ListRowGroup, ListState, type ListStatus } from '@/components/shell/list-row';
 import { PageHeader } from '@/components/shell/page-header';
 import { StatTile } from '@/components/shell/stat-tile';
 import { TransactionDialog } from '@/components/transactions/transaction-dialog';
@@ -24,6 +25,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -33,11 +35,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import {
-  useAccount,
-  useMerchants,
-  useTransactions,
-} from '@/hooks/use-finance-queries';
+import { useAccount, useMerchants, useTransactions } from '@/hooks/use-finance-queries';
 import { accountTypeLabel } from '@/lib/account-meta';
 import { money, shortDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -97,9 +95,18 @@ export default function AccountDetailPage() {
     setDialogOpen(true);
   };
 
+  const status: ListStatus = transactions.isPending
+    ? 'pending'
+    : transactions.isError
+      ? 'error'
+      : rows.length === 0
+        ? 'empty'
+        : 'ready';
+
   return (
     <div className="flex flex-col gap-5">
       <PageHeader
+        eyebrowClassName="hidden md:block"
         eyebrow={
           <Link
             href="/accounts"
@@ -124,7 +131,7 @@ export default function AccountDetailPage() {
         }
       />
 
-      <Card tone="inverted" className="grid gap-5 sm:grid-cols-3">
+      <Card tone="inverted" className="grid gap-5 px-(--card-spacing) sm:grid-cols-3">
         <StatTile
           tone="inverted"
           size="lg"
@@ -156,117 +163,154 @@ export default function AccountDetailPage() {
       </Card>
 
       <Card className="[--card-spacing:0px] py-0">
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <TableHead className="pl-5">Date</TableHead>
-              <TableHead>Description</TableHead>
-              <TableHead>Category</TableHead>
-              <TableHead className="text-right">Amount</TableHead>
-              <TableHead className="w-24 pr-5" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {transactions.isPending ? (
-              Array.from({ length: 6 }, (_, index) => (
-                <TableRow key={index}>
-                  <TableCell colSpan={5} className="px-5">
-                    <Skeleton className="h-6 w-full" />
-                  </TableCell>
-                </TableRow>
-              ))
-            ) : transactions.isError ? (
-              <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={5} className="py-14 text-center">
-                  <p className="text-sm font-medium">Cannot reach the API</p>
-                  <p className="text-muted-foreground mt-1 text-sm">
-                    This account&rsquo;s transactions could not be loaded.
-                  </p>
-                </TableCell>
-              </TableRow>
-            ) : rows.length === 0 ? (
-              <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={5} className="py-14 text-center">
-                  <p className="text-sm font-medium">Nothing posted here yet</p>
-                  <p className="text-muted-foreground mt-1 text-sm">
-                    Add income to record money arriving, or an expense to record it leaving.
-                  </p>
-                </TableCell>
-              </TableRow>
-            ) : (
-              rows.map((transaction) => {
+        {status === 'ready' ? (
+          <>
+            <ListRowGroup className="md:hidden">
+              {rows.map((transaction) => {
                 const isIncome = transaction.type === 'INCOME';
-                // Income carries its category on the row itself; an expense is
-                // classified line by line, so it can only show its first line's.
                 const category = isIncome ? transaction.category : transaction.items[0]?.category;
 
                 return (
-                  <TableRow key={transaction.id} className="hover:bg-muted/50">
-                    <TableCell className="text-muted-foreground pl-5 whitespace-nowrap">
-                      {shortDate(transaction.occurredAt)}
-                    </TableCell>
-                    <TableCell className="font-medium">
-                      <Link
-                        href={`/transactions/${transaction.id}`}
-                        className="hover:underline focus-visible:underline focus-visible:outline-none"
-                      >
-                        {transaction.description ?? transaction.merchant?.name ?? 'Transaction'}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      {category ? (
-                        <span className="flex items-center gap-2">
-                          <span
-                            className="size-2.5 shrink-0 rounded-full"
-                            style={{ background: category.color ?? 'var(--muted-foreground)' }}
-                            aria-hidden
-                          />
-                          <span className="truncate">{category.name}</span>
-                          {!isIncome && transaction.items.length > 1 ? (
-                            <span className="text-muted-foreground shrink-0 text-xs">
-                              +{transaction.items.length - 1}
-                            </span>
-                          ) : null}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">Not itemised</span>
-                      )}
-                    </TableCell>
-                    {/* The sign is spelled out, never left to colour alone — this has
-                        to stay readable outdoors in daylight. */}
-                    <TableCell
-                      className={cn(
-                        'text-right font-semibold tabular-nums',
-                        isIncome ? 'text-income' : 'text-expense',
-                      )}
-                    >
-                      {isIncome ? '+' : '−'}
-                      {money(transaction.amountMinor, transaction.currency)}
-                    </TableCell>
-                    <TableCell className="pr-5 text-right whitespace-nowrap">
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Edit ${transaction.description ?? 'transaction'}`}
-                        onClick={() => openDialog(transaction.type, transaction)}
-                      >
-                        <Pencil />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Delete ${transaction.description ?? 'transaction'}`}
-                        onClick={() => setPendingDelete(transaction)}
-                      >
-                        <Trash2 />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
+                  <ListRow
+                    key={transaction.id}
+                    href={`/transactions/${transaction.id}`}
+                    leading={
+                      <span
+                        className="size-2.5 rounded-full"
+                        style={{ background: category?.color ?? 'var(--muted-foreground)' }}
+                        aria-hidden
+                      />
+                    }
+                    title={transaction.description ?? transaction.merchant?.name ?? 'Transaction'}
+                    subtitle={`${shortDate(transaction.occurredAt)} · ${
+                      category?.name ?? 'Not itemised'
+                    }`}
+                    trailing={
+                      /* The sign is spelled out, never left to colour alone — this
+                         has to stay readable outdoors in daylight. */
+                      <span className={isIncome ? 'text-income' : 'text-expense'}>
+                        {isIncome ? '+' : '−'}
+                        {money(transaction.amountMinor, transaction.currency)}
+                      </span>
+                    }
+                    actions={
+                      <>
+                        <DropdownMenuItem
+                          onSelect={() => openDialog(transaction.type, transaction)}
+                        >
+                          <Pencil />
+                          Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onSelect={() => setPendingDelete(transaction)}
+                        >
+                          <Trash2 />
+                          Delete
+                        </DropdownMenuItem>
+                      </>
+                    }
+                  />
                 );
-              })
-            )}
-          </TableBody>
-        </Table>
+              })}
+            </ListRowGroup>
+
+            <Table className="hidden md:table">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="pl-5">Date</TableHead>
+                  <TableHead>Description</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead className="w-24 pr-5" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((transaction) => {
+                  const isIncome = transaction.type === 'INCOME';
+                  // Income carries its category on the row itself; an expense is
+                  // classified line by line, so it can only show its first line's.
+                  const category = isIncome ? transaction.category : transaction.items[0]?.category;
+
+                  return (
+                    <TableRow key={transaction.id} className="hover:bg-muted/50">
+                      <TableCell className="text-muted-foreground pl-5 whitespace-nowrap">
+                        {shortDate(transaction.occurredAt)}
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        <Link
+                          href={`/transactions/${transaction.id}`}
+                          className="hover:underline focus-visible:underline focus-visible:outline-none"
+                        >
+                          {transaction.description ?? transaction.merchant?.name ?? 'Transaction'}
+                        </Link>
+                      </TableCell>
+                      <TableCell>
+                        {category ? (
+                          <span className="flex items-center gap-2">
+                            <span
+                              className="size-2.5 shrink-0 rounded-full"
+                              style={{ background: category.color ?? 'var(--muted-foreground)' }}
+                              aria-hidden
+                            />
+                            <span className="truncate">{category.name}</span>
+                            {!isIncome && transaction.items.length > 1 ? (
+                              <span className="text-muted-foreground shrink-0 text-xs">
+                                +{transaction.items.length - 1}
+                              </span>
+                            ) : null}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">Not itemised</span>
+                        )}
+                      </TableCell>
+                      {/* The sign is spelled out, never left to colour alone — this has
+                          to stay readable outdoors in daylight. */}
+                      <TableCell
+                        className={cn(
+                          'text-right font-semibold tabular-nums',
+                          isIncome ? 'text-income' : 'text-expense',
+                        )}
+                      >
+                        {isIncome ? '+' : '−'}
+                        {money(transaction.amountMinor, transaction.currency)}
+                      </TableCell>
+                      <TableCell className="pr-5 text-right whitespace-nowrap">
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Edit ${transaction.description ?? 'transaction'}`}
+                          onClick={() => openDialog(transaction.type, transaction)}
+                        >
+                          <Pencil />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Delete ${transaction.description ?? 'transaction'}`}
+                          onClick={() => setPendingDelete(transaction)}
+                        >
+                          <Trash2 />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </>
+        ) : (
+          <ListState
+            status={status}
+            rows={6}
+            title={status === 'error' ? 'Cannot reach the API' : 'Nothing posted here yet'}
+            description={
+              status === 'error'
+                ? "This account's transactions could not be loaded."
+                : 'Add income to record money arriving, or an expense to record it leaving.'
+            }
+          />
+        )}
       </Card>
 
       {total > PAGE_SIZE ? (

@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogClose,
+  DialogBody,
   DialogContent,
   DialogFooter,
   DialogHeader,
@@ -120,29 +121,35 @@ export const SaveToCatalogueDialog = ({
         </DialogHeader>
 
         <form
-          className="space-y-4"
+          className="flex min-h-0 flex-1 flex-col gap-4"
           onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
         >
-          <div className="bg-muted grid gap-1 rounded-xl px-4 py-3 text-sm">
-            <span className="font-medium">{item.name}</span>
-            <span className="text-muted-foreground">
-              {transaction.merchant?.name}
-              {item.category ? ` · ${item.category.name}` : null}
-            </span>
-          </div>
+          <DialogBody className="space-y-4">
+            <div className="bg-muted grid gap-1 rounded-xl px-4 py-3 text-sm">
+              <span className="font-medium">{item.name}</span>
+              <span className="text-muted-foreground">
+                {transaction.merchant?.name}
+                {item.category ? ` · ${item.category.name}` : null}
+              </span>
+            </div>
 
-          <div className="grid gap-2">
-            <Label htmlFor="code">Product code</Label>
-            <Input id="code" placeholder="IDM-001" autoComplete="off" {...form.register('code')} />
-            {form.formState.errors.code ? (
-              <p className="text-destructive text-xs">{form.formState.errors.code.message}</p>
-            ) : (
-              <p className="text-muted-foreground text-xs">
-                Optional. The shop&rsquo;s own code for this, unique within this merchant.
-              </p>
-            )}
-          </div>
-
+            <div className="grid gap-2">
+              <Label htmlFor="code">Product code</Label>
+              <Input
+                id="code"
+                placeholder="IDM-001"
+                autoComplete="off"
+                {...form.register('code')}
+              />
+              {form.formState.errors.code ? (
+                <p className="text-destructive text-xs">{form.formState.errors.code.message}</p>
+              ) : (
+                <p className="text-muted-foreground text-xs">
+                  Optional. The shop&rsquo;s own code for this, unique within this merchant.
+                </p>
+              )}
+            </div>
+          </DialogBody>
           <DialogFooter>
             <DialogClose asChild>
               <Button type="button" variant="ghost">

@@ -187,6 +187,121 @@ interface TransactionChargesFooterProps {
 }
 
 /**
+ * The editable charge rows.
+ *
+ * Its own component because the desktop table can only host a `<form>` inside a
+ * single `<td>` — "a `<form>` may not span several `<tr>`s" — while the mobile
+ * panel is not a table and needs no such wrapper. One definition, two hosts.
+ */
+const ChargesForm = ({ transaction, charges }: TransactionChargesFooterProps) => {
+  const { form, fields, remove, cancel } = charges;
+
+  return (
+    <form className="space-y-4 p-4 sm:p-5" onSubmit={charges.submit}>
+      <ul className="space-y-3">
+        {fields.map((field, index) => (
+          <li
+            key={field.id}
+            className="grid grid-cols-[1fr_auto] items-end gap-3 sm:grid-cols-[1fr_5rem_9rem_auto] sm:gap-2"
+          >
+            <div className="grid gap-2">
+              {/* Labelled once, on the first row: repeating them down the list
+                is noise, but a screen reader still needs every field named. */}
+              <Label
+                htmlFor={`charge-name-${index}`}
+                className={index === 0 ? undefined : 'sr-only'}
+              >
+                Charge
+              </Label>
+              <Input
+                id={`charge-name-${index}`}
+                placeholder="Service charge"
+                autoComplete="off"
+                {...form.register(`charges.${index}.name`)}
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label
+                htmlFor={`charge-percent-${index}`}
+                className={index === 0 ? undefined : 'sr-only'}
+              >
+                %
+              </Label>
+              <Controller
+                control={form.control}
+                name={`charges.${index}.percent`}
+                render={({ field: percentField }) => (
+                  <Input
+                    id={`charge-percent-${index}`}
+                    type="number"
+                    min={0}
+                    step="any"
+                    inputMode="decimal"
+                    placeholder="—"
+                    value={percentField.value ?? ''}
+                    onBlur={percentField.onBlur}
+                    onChange={(event) => {
+                      const percent = event.target.valueAsNumber;
+                      percentField.onChange(Number.isFinite(percent) ? percent : undefined);
+                      charges.handlePercentChange(index, percent);
+                    }}
+                  />
+                )}
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label
+                htmlFor={`charge-amount-${index}`}
+                className={index === 0 ? undefined : 'sr-only'}
+              >
+                Amount
+              </Label>
+              <Controller
+                control={form.control}
+                name={`charges.${index}.amount`}
+                render={({ field: amountField }) => (
+                  <CurrencyInput
+                    id={`charge-amount-${index}`}
+                    currency={transaction.currency}
+                    name={amountField.name}
+                    value={amountField.value}
+                    onChange={amountField.onChange}
+                    onBlur={amountField.onBlur}
+                    aria-invalid={Boolean(form.formState.errors.charges?.[index]?.amount)}
+                  />
+                )}
+              />
+            </div>
+
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="mb-1"
+              aria-label={`Remove charge ${index + 1}`}
+              onClick={() => remove(index)}
+            >
+              <Trash2 />
+            </Button>
+          </li>
+        ))}
+      </ul>
+
+      <div className="flex items-center justify-end gap-2">
+        <Button type="button" variant="ghost" onClick={cancel}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={charges.isPending || !form.formState.isDirty}>
+          {charges.isPending ? 'Saving…' : 'Save charges'}
+        </Button>
+      </div>
+    </form>
+  );
+};
+
+/**
  * The receipt's tail, rendered as the lines table's own footer rather than a
  * second card: subtotal, one row per charge, total. Must be a direct child of
  * `<Table>`.
@@ -195,7 +310,7 @@ export const TransactionChargesFooter = ({
   transaction,
   charges,
 }: TransactionChargesFooterProps) => {
-  const { form, fields, remove, isEditing, startEditing, cancel } = charges;
+  const { isEditing, startEditing } = charges;
   const savedCharges = transaction.charges;
   const totalMinor = charges.subtotalMinor + charges.chargesMinor;
 
@@ -252,107 +367,7 @@ export const TransactionChargesFooter = ({
           {/* One cell, because a <form> may not span several <tr>s — inside a <td>
               it is valid, so the whole field array submits as one form. */}
           <TableCell colSpan={7} className="p-0 whitespace-normal">
-            <form className="space-y-4 p-5" onSubmit={charges.submit}>
-              <ul className="space-y-3">
-                {fields.map((field, index) => (
-                  <li
-                    key={field.id}
-                    className="grid grid-cols-[1fr_5rem_9rem_auto] items-end gap-2"
-                  >
-                    <div className="grid gap-2">
-                      {/* Labelled once, on the first row: repeating them down the list
-                          is noise, but a screen reader still needs every field named. */}
-                      <Label
-                        htmlFor={`charge-name-${index}`}
-                        className={index === 0 ? undefined : 'sr-only'}
-                      >
-                        Charge
-                      </Label>
-                      <Input
-                        id={`charge-name-${index}`}
-                        placeholder="Service charge"
-                        autoComplete="off"
-                        {...form.register(`charges.${index}.name`)}
-                      />
-                    </div>
-
-                    <div className="grid gap-2">
-                      <Label
-                        htmlFor={`charge-percent-${index}`}
-                        className={index === 0 ? undefined : 'sr-only'}
-                      >
-                        %
-                      </Label>
-                      <Controller
-                        control={form.control}
-                        name={`charges.${index}.percent`}
-                        render={({ field: percentField }) => (
-                          <Input
-                            id={`charge-percent-${index}`}
-                            type="number"
-                            min={0}
-                            step="any"
-                            inputMode="decimal"
-                            placeholder="—"
-                            value={percentField.value ?? ''}
-                            onBlur={percentField.onBlur}
-                            onChange={(event) => {
-                              const percent = event.target.valueAsNumber;
-                              percentField.onChange(Number.isFinite(percent) ? percent : undefined);
-                              charges.handlePercentChange(index, percent);
-                            }}
-                          />
-                        )}
-                      />
-                    </div>
-
-                    <div className="grid gap-2">
-                      <Label
-                        htmlFor={`charge-amount-${index}`}
-                        className={index === 0 ? undefined : 'sr-only'}
-                      >
-                        Amount
-                      </Label>
-                      <Controller
-                        control={form.control}
-                        name={`charges.${index}.amount`}
-                        render={({ field: amountField }) => (
-                          <CurrencyInput
-                            id={`charge-amount-${index}`}
-                            currency={transaction.currency}
-                            name={amountField.name}
-                            value={amountField.value}
-                            onChange={amountField.onChange}
-                            onBlur={amountField.onBlur}
-                            aria-invalid={Boolean(form.formState.errors.charges?.[index]?.amount)}
-                          />
-                        )}
-                      />
-                    </div>
-
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      className="mb-1"
-                      aria-label={`Remove charge ${index + 1}`}
-                      onClick={() => remove(index)}
-                    >
-                      <Trash2 />
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-
-              <div className="flex items-center justify-end gap-2">
-                <Button type="button" variant="ghost" onClick={cancel}>
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={charges.isPending || !form.formState.isDirty}>
-                  {charges.isPending ? 'Saving…' : 'Save charges'}
-                </Button>
-              </div>
-            </form>
+            <ChargesForm transaction={transaction} charges={charges} />
           </TableCell>
         </TableRow>
       ) : null}
@@ -367,5 +382,71 @@ export const TransactionChargesFooter = ({
         <TableCell className="pr-5" />
       </TableRow>
     </TableFooter>
+  );
+};
+
+/**
+ * The same tail, without a table.
+ *
+ * Below `md` the lines are `ListRow`s, so there is no `<Table>` for
+ * `TransactionChargesFooter` to be a child of — and none of the `colSpan`
+ * plumbing it needs. Same figures, same form, plain rows.
+ */
+export const TransactionChargesPanel = ({
+  transaction,
+  charges,
+}: TransactionChargesFooterProps) => {
+  const { isEditing, startEditing } = charges;
+  const savedCharges = transaction.charges;
+  const totalMinor = charges.subtotalMinor + charges.chargesMinor;
+
+  if (transaction.items.length === 0 && savedCharges.length === 0 && !isEditing) return null;
+
+  const hasChargeRows = savedCharges.length > 0 || isEditing;
+
+  return (
+    <div className="bg-muted/40 text-sm">
+      {hasChargeRows ? (
+        <div className="flex items-baseline justify-between gap-3 px-4 py-2.5">
+          <span className="text-muted-foreground">Subtotal from lines</span>
+          <span className="tabular-nums">{money(charges.subtotalMinor, transaction.currency)}</span>
+        </div>
+      ) : null}
+
+      {isEditing
+        ? null
+        : savedCharges.map((charge) => (
+            <div key={charge.id} className="flex items-center justify-between gap-3 px-4 py-1.5">
+              <span className="min-w-0 truncate">
+                {charge.name}
+                {charge.percentBasisPoints == null ? null : (
+                  <span className="text-muted-foreground ml-2 text-xs">
+                    {charge.percentBasisPoints / 100}%
+                  </span>
+                )}
+              </span>
+              <span className="flex shrink-0 items-center gap-1">
+                <span className="tabular-nums">
+                  {money(charge.amountMinor, transaction.currency)}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`Edit ${charge.name}`}
+                  onClick={startEditing}
+                >
+                  <Pencil />
+                </Button>
+              </span>
+            </div>
+          ))}
+
+      {isEditing ? <ChargesForm transaction={transaction} charges={charges} /> : null}
+
+      <div className="border-border flex items-baseline justify-between gap-3 border-t px-4 py-3 font-semibold">
+        <span>Total</span>
+        <span className="tabular-nums">{money(totalMinor, transaction.currency)}</span>
+      </div>
+    </div>
   );
 };

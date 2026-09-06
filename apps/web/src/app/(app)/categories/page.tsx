@@ -9,6 +9,7 @@ import { categoriesRemove } from '@/api';
 import type { CategoryResponse } from '@/api';
 import { CategoryAccountSelect } from '@/components/categories/category-account-select';
 import { CategoryDialog } from '@/components/categories/category-dialog';
+import { ListRow, ListRowGroup, ListState, type ListStatus } from '@/components/shell/list-row';
 import { PageHeader } from '@/components/shell/page-header';
 import {
   AlertDialog,
@@ -22,6 +23,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -30,7 +32,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
   TableBody,
@@ -41,6 +42,7 @@ import {
 } from '@/components/ui/table';
 import { ACCOUNT_PICKER_QUERY, useAccounts, useCategories } from '@/hooks/use-finance-queries';
 import { UNASSIGNED_ACCOUNT } from '@/lib/account-meta';
+import { countLabel } from '@/lib/format';
 import { invalidateCategoryDependents } from '@/lib/query-invalidation';
 import { cn } from '@/lib/utils';
 
@@ -60,15 +62,11 @@ const describeUsage = (category: CategoryResponse): string => {
   const parts: string[] = [];
 
   if (category.transactionItemCount > 0) {
-    parts.push(
-      `${category.transactionItemCount} receipt line${
-        category.transactionItemCount === 1 ? '' : 's'
-      }`,
-    );
+    parts.push(countLabel(category.transactionItemCount, 'receipt line'));
   }
 
   if (category.productCount > 0) {
-    parts.push(`${category.productCount} product${category.productCount === 1 ? '' : 's'}`);
+    parts.push(countLabel(category.productCount, 'product'));
   }
 
   if (parts.length === 0) return 'Nothing is filed under it.';
@@ -116,6 +114,14 @@ export default function CategoriesPage() {
     onError: () => toast.error('Could not delete the category'),
   });
 
+  const status: ListStatus = categories.isPending
+    ? 'pending'
+    : categories.isError
+      ? 'error'
+      : rows.length === 0
+        ? 'empty'
+        : 'ready';
+
   return (
     <div className="flex flex-col gap-5">
       <PageHeader
@@ -135,7 +141,7 @@ export default function CategoriesPage() {
       />
 
       <div className="flex flex-wrap items-center gap-3">
-        <div className="relative min-w-0 flex-1 sm:max-w-xs sm:flex-none">
+        <div className="relative w-full min-w-0 sm:max-w-xs sm:flex-none">
           <Search
             className="text-muted-foreground pointer-events-none absolute inset-y-0 left-3.5 my-auto size-4"
             aria-hidden
@@ -143,6 +149,8 @@ export default function CategoriesPage() {
           <Input
             placeholder="Search categories"
             className="pl-10"
+            type="search"
+            enterKeyHint="search"
             aria-label="Search categories"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -152,7 +160,7 @@ export default function CategoriesPage() {
         <div
           role="radiogroup"
           aria-label="Filter by kind"
-          className="bg-muted flex items-center gap-1 rounded-full p-1"
+          className="bg-muted flex flex-1 items-center gap-1 rounded-full p-1 *:flex-1 sm:flex-none sm:*:flex-none"
         >
           {KIND_FILTERS.map((option) => (
             <button
@@ -190,99 +198,147 @@ export default function CategoriesPage() {
       </div>
 
       <Card className="[--card-spacing:0px] py-0">
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <TableHead className="pl-5">Name</TableHead>
-              <TableHead>Account</TableHead>
-              <TableHead>Kind</TableHead>
-              <TableHead className="text-right">Receipt lines</TableHead>
-              <TableHead className="text-right">Products</TableHead>
-              <TableHead className="w-24 pr-5" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {categories.isPending ? (
-              Array.from({ length: 6 }, (_, index) => (
-                <TableRow key={index}>
-                  <TableCell colSpan={6} className="px-5">
-                    <Skeleton className="h-6 w-full" />
-                  </TableCell>
-                </TableRow>
-              ))
-            ) : categories.isError ? (
-              <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={6} className="py-14 text-center">
-                  <p className="text-sm font-medium">Cannot reach the API</p>
-                  <p className="text-muted-foreground mt-1 text-sm">
-                    Categories could not be loaded.
-                  </p>
-                </TableCell>
-              </TableRow>
-            ) : rows.length === 0 ? (
-              <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={6} className="py-14 text-center">
-                  <p className="text-sm font-medium">
-                    {hasFilters ? 'Nothing here' : 'No categories yet'}
-                  </p>
-                  <p className="text-muted-foreground mt-1 text-sm">
-                    {hasFilters
-                      ? 'No category matches those filters.'
-                      : 'Categories classify what you buy, line by line.'}
-                  </p>
-                </TableCell>
-              </TableRow>
-            ) : (
-              rows.map((category) => (
-                <TableRow key={category.id} className="hover:bg-muted/50">
-                  <TableCell className="pl-5 font-medium">
-                    <span className="flex items-center gap-2.5">
-                      <span
-                        className="size-2.5 shrink-0 rounded-full"
-                        style={{ background: category.color ?? 'var(--muted-foreground)' }}
-                        aria-hidden
+        {status === 'ready' ? (
+          <>
+            <ListRowGroup className="md:hidden">
+              {rows.map((category) => (
+                <ListRow
+                  key={category.id}
+                  leading={
+                    <span
+                      className="size-2.5 rounded-full"
+                      style={{ background: category.color ?? 'var(--muted-foreground)' }}
+                      aria-hidden
+                    />
+                  }
+                  title={category.name}
+                  subtitle={`${category.kind === 'INCOME' ? 'Income' : 'Expense'} · ${countLabel(
+                    category.transactionItemCount,
+                    'receipt line',
+                  )} · ${countLabel(category.productCount, 'product')}`}
+                  // The account picker is a control, not a value, so it gets its
+                  // own full-width line rather than a 176px sliver in a cell.
+                  footer={
+                    // Named, because the mobile list has no column header to say
+                    // what this control is picking.
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground shrink-0 text-xs">Account</span>
+                      <CategoryAccountSelect
+                        category={category}
+                        accounts={accounts.data?.data ?? []}
+                        className="max-w-none flex-1"
                       />
-                      {category.name}
-                    </span>
-                  </TableCell>
-                  <TableCell className="py-1">
-                    <CategoryAccountSelect category={category} accounts={accounts.data?.data ?? []} />
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {category.kind === 'INCOME' ? 'Income' : 'Expense'}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground text-right tabular-nums">
-                    {category.transactionItemCount}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground text-right tabular-nums">
-                    {category.productCount}
-                  </TableCell>
-                  <TableCell className="pr-5 text-right whitespace-nowrap">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`Edit ${category.name}`}
-                      onClick={() => {
-                        setEditing(category);
-                        setDialogOpen(true);
-                      }}
-                    >
-                      <Pencil />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`Delete ${category.name}`}
-                      onClick={() => setPendingDelete(category)}
-                    >
-                      <Trash2 />
-                    </Button>
-                  </TableCell>
+                    </div>
+                  }
+                  actions={
+                    <>
+                      <DropdownMenuItem
+                        onSelect={() => {
+                          setEditing(category);
+                          setDialogOpen(true);
+                        }}
+                      >
+                        <Pencil />
+                        Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onSelect={() => setPendingDelete(category)}
+                      >
+                        <Trash2 />
+                        Delete
+                      </DropdownMenuItem>
+                    </>
+                  }
+                />
+              ))}
+            </ListRowGroup>
+
+            <Table className="hidden md:table">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="pl-5">Name</TableHead>
+                  <TableHead>Account</TableHead>
+                  <TableHead>Kind</TableHead>
+                  <TableHead className="text-right">Receipt lines</TableHead>
+                  <TableHead className="text-right">Products</TableHead>
+                  <TableHead className="w-24 pr-5" />
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+              </TableHeader>
+              <TableBody>
+                {rows.map((category) => (
+                  <TableRow key={category.id} className="hover:bg-muted/50">
+                    <TableCell className="pl-5 font-medium">
+                      <span className="flex items-center gap-2.5">
+                        <span
+                          className="size-2.5 shrink-0 rounded-full"
+                          style={{ background: category.color ?? 'var(--muted-foreground)' }}
+                          aria-hidden
+                        />
+                        {category.name}
+                      </span>
+                    </TableCell>
+                    <TableCell className="py-1">
+                      <CategoryAccountSelect
+                        category={category}
+                        accounts={accounts.data?.data ?? []}
+                      />
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {category.kind === 'INCOME' ? 'Income' : 'Expense'}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-right tabular-nums">
+                      {category.transactionItemCount}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-right tabular-nums">
+                      {category.productCount}
+                    </TableCell>
+                    <TableCell className="pr-5 text-right whitespace-nowrap">
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Edit ${category.name}`}
+                        onClick={() => {
+                          setEditing(category);
+                          setDialogOpen(true);
+                        }}
+                      >
+                        <Pencil />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Delete ${category.name}`}
+                        onClick={() => setPendingDelete(category)}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </>
+        ) : (
+          <ListState
+            status={status}
+            rows={6}
+            title={
+              status === 'error'
+                ? 'Cannot reach the API'
+                : hasFilters
+                  ? 'Nothing here'
+                  : 'No categories yet'
+            }
+            description={
+              status === 'error'
+                ? 'Categories could not be loaded.'
+                : hasFilters
+                  ? 'No category matches those filters.'
+                  : 'Categories classify what you buy, line by line.'
+            }
+          />
+        )}
       </Card>
 
       <CategoryDialog category={editing} open={dialogOpen} onOpenChange={setDialogOpen} />

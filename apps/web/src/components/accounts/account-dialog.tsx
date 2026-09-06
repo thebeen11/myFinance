@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogClose,
+  DialogBody,
   DialogContent,
   DialogFooter,
   DialogHeader,
@@ -129,99 +130,100 @@ export const AccountDialog = ({ account, open, onOpenChange, trigger }: AccountD
         </DialogHeader>
 
         <form
-          className="space-y-4"
+          className="flex min-h-0 flex-1 flex-col gap-4"
           onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
         >
-          <div className="grid gap-2">
-            <Label htmlFor="name">Name</Label>
-            <Input
-              id="name"
-              placeholder="BCA Payroll"
-              autoComplete="off"
-              {...form.register('name')}
-            />
-            {form.formState.errors.name ? (
-              <p className="text-destructive text-xs">{form.formState.errors.name.message}</p>
-            ) : null}
-          </div>
+          <DialogBody className="space-y-4">
+            <div className="grid gap-2">
+              <Label htmlFor="name">Name</Label>
+              <Input
+                id="name"
+                placeholder="BCA Payroll"
+                autoComplete="off"
+                {...form.register('name')}
+              />
+              {form.formState.errors.name ? (
+                <p className="text-destructive text-xs">{form.formState.errors.name.message}</p>
+              ) : null}
+            </div>
 
-          <div className="grid gap-2">
-            <Label htmlFor="type">Type</Label>
-            <Controller
-              control={form.control}
-              name="type"
-              render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger id="type" className="w-full">
-                    <SelectValue placeholder="Pick a type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ACCOUNT_TYPES.map((type) => (
-                      <SelectItem key={type} value={type}>
-                        {accountTypeLabel(type)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            <div className="grid gap-2">
+              <Label htmlFor="type">Type</Label>
+              <Controller
+                control={form.control}
+                name="type"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger id="type" className="w-full">
+                      <SelectValue placeholder="Pick a type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ACCOUNT_TYPES.map((type) => (
+                        <SelectItem key={type} value={type}>
+                          {accountTypeLabel(type)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              {form.formState.errors.type ? (
+                <p className="text-destructive text-xs">{form.formState.errors.type.message}</p>
+              ) : null}
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="currency">Currency</Label>
+              <Input
+                id="currency"
+                placeholder="IDR"
+                autoComplete="off"
+                maxLength={3}
+                className="uppercase"
+                // Fixed once the account exists: every amount already posted to it
+                // was stored at this currency's scale, and changing the code would
+                // silently reinterpret all of them.
+                disabled={account !== undefined}
+                {...form.register('currency')}
+              />
+              {form.formState.errors.currency ? (
+                <p className="text-destructive text-xs">{form.formState.errors.currency.message}</p>
+              ) : (
+                <p className="text-muted-foreground text-xs">
+                  {account
+                    ? 'Fixed once the account exists — its history is stored at this scale.'
+                    : 'ISO 4217 code. Cannot be changed later.'}
+                </p>
               )}
-            />
-            {form.formState.errors.type ? (
-              <p className="text-destructive text-xs">{form.formState.errors.type.message}</p>
-            ) : null}
-          </div>
+            </div>
 
-          <div className="grid gap-2">
-            <Label htmlFor="currency">Currency</Label>
-            <Input
-              id="currency"
-              placeholder="IDR"
-              autoComplete="off"
-              maxLength={3}
-              className="uppercase"
-              // Fixed once the account exists: every amount already posted to it
-              // was stored at this currency's scale, and changing the code would
-              // silently reinterpret all of them.
-              disabled={account !== undefined}
-              {...form.register('currency')}
-            />
-            {form.formState.errors.currency ? (
-              <p className="text-destructive text-xs">{form.formState.errors.currency.message}</p>
-            ) : (
-              <p className="text-muted-foreground text-xs">
-                {account
-                  ? 'Fixed once the account exists — its history is stored at this scale.'
-                  : 'ISO 4217 code. Cannot be changed later.'}
-              </p>
-            )}
-          </div>
-
-          <div className="grid gap-2">
-            <Label htmlFor="openingBalance">Opening balance</Label>
-            <Controller
-              control={form.control}
-              name="openingBalance"
-              render={({ field }) => (
-                <CurrencyInput
-                  id="openingBalance"
-                  currency={currency.length === 3 ? currency.toUpperCase() : DEFAULT_CURRENCY}
-                  name={field.name}
-                  value={field.value}
-                  onChange={field.onChange}
-                  onBlur={field.onBlur}
-                />
+            <div className="grid gap-2">
+              <Label htmlFor="openingBalance">Opening balance</Label>
+              <Controller
+                control={form.control}
+                name="openingBalance"
+                render={({ field }) => (
+                  <CurrencyInput
+                    id="openingBalance"
+                    currency={currency.length === 3 ? currency.toUpperCase() : DEFAULT_CURRENCY}
+                    name={field.name}
+                    value={field.value}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                  />
+                )}
+              />
+              {form.formState.errors.openingBalance ? (
+                <p className="text-destructive text-xs">
+                  {form.formState.errors.openingBalance.message}
+                </p>
+              ) : (
+                <p className="text-muted-foreground text-xs">
+                  What the account held before the first tracked transaction.
+                </p>
               )}
-            />
-            {form.formState.errors.openingBalance ? (
-              <p className="text-destructive text-xs">
-                {form.formState.errors.openingBalance.message}
-              </p>
-            ) : (
-              <p className="text-muted-foreground text-xs">
-                What the account held before the first tracked transaction.
-              </p>
-            )}
-          </div>
-
+            </div>
+          </DialogBody>
           <DialogFooter>
             <DialogClose asChild>
               <Button type="button" variant="ghost">

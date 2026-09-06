@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogClose,
+  DialogBody,
   DialogContent,
   DialogFooter,
   DialogHeader,
@@ -236,177 +237,180 @@ export const TransactionDialog = ({
         </DialogHeader>
 
         <form
-          className="space-y-4"
+          className="flex min-h-0 flex-1 flex-col gap-4"
           onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
         >
-          {/* A segmented control rather than a dropdown: this is a binary choice
+          <DialogBody className="space-y-4">
+            {/* A segmented control rather than a dropdown: this is a binary choice
               that also decides how the rest of the form behaves, so it should be
               visible at a glance instead of collapsed behind a menu. Hidden when
               the caller already committed to a direction. */}
-          {lockedType ? null : (
-            <div className="grid gap-2">
-              <Label>Type</Label>
-              <Controller
-                control={form.control}
-                name="type"
-                render={({ field }) => (
-                  <div
-                    role="radiogroup"
-                    aria-label="Type"
-                    className="bg-muted grid grid-cols-2 gap-1 rounded-full p-1"
-                  >
-                    {(['EXPENSE', 'INCOME'] as const).map((option) => (
-                      <button
-                        key={option}
-                        type="button"
-                        role="radio"
-                        aria-checked={field.value === option}
-                        onClick={() => field.onChange(option)}
-                        className={cn(
-                          'focus-visible:ring-ring/50 rounded-full py-1.5 text-sm font-medium transition-colors outline-none focus-visible:ring-3',
-                          field.value === option
-                            ? 'bg-card text-foreground ring-foreground/8 ring-1'
-                            : 'text-muted-foreground hover:text-foreground',
-                        )}
-                      >
-                        {option === 'EXPENSE' ? 'Expense' : 'Income'}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              />
-            </div>
-          )}
-
-          {lockedAccount ? null : (
-            <div className="grid gap-2">
-              <Label htmlFor="accountId">Account</Label>
-              <Controller
-                control={form.control}
-                name="accountId"
-                render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger id="accountId" className="w-full">
-                      <SelectValue placeholder="Pick an account" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {accounts.map((account) => (
-                        <SelectItem key={account.id} value={account.id}>
-                          {account.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-              {form.formState.errors.accountId ? (
-                <p className="text-destructive text-xs">
-                  {form.formState.errors.accountId.message}
-                </p>
-              ) : null}
-            </div>
-          )}
-
-          {/* Income is a single figure posted to the account — there is nothing to
-              itemise afterwards, so the amount is entered here and the row is
-              complete on save. An expense total belongs to its lines instead. */}
-          {isIncome ? (
-            <>
+            {lockedType ? null : (
               <div className="grid gap-2">
-                <Label htmlFor="amount">Amount</Label>
+                <Label>Type</Label>
                 <Controller
                   control={form.control}
-                  name="amount"
+                  name="type"
                   render={({ field }) => (
-                    <CurrencyInput
-                      id="amount"
-                      currency={currency}
-                      value={field.value}
-                      onChange={field.onChange}
-                      onBlur={field.onBlur}
-                      aria-invalid={Boolean(form.formState.errors.amount)}
-                    />
+                    <div
+                      role="radiogroup"
+                      aria-label="Type"
+                      className="bg-muted grid grid-cols-2 gap-1 rounded-full p-1"
+                    >
+                      {(['EXPENSE', 'INCOME'] as const).map((option) => (
+                        <button
+                          key={option}
+                          type="button"
+                          role="radio"
+                          aria-checked={field.value === option}
+                          onClick={() => field.onChange(option)}
+                          className={cn(
+                            'focus-visible:ring-ring/50 rounded-full py-1.5 text-sm font-medium transition-colors outline-none focus-visible:ring-3',
+                            field.value === option
+                              ? 'bg-card text-foreground ring-foreground/8 ring-1'
+                              : 'text-muted-foreground hover:text-foreground',
+                          )}
+                        >
+                          {option === 'EXPENSE' ? 'Expense' : 'Income'}
+                        </button>
+                      ))}
+                    </div>
                   )}
                 />
-                {form.formState.errors.amount ? (
-                  <p className="text-destructive text-xs">{form.formState.errors.amount.message}</p>
-                ) : null}
               </div>
+            )}
 
+            {lockedAccount ? null : (
               <div className="grid gap-2">
-                <Label htmlFor="categoryId">Category</Label>
+                <Label htmlFor="accountId">Account</Label>
                 <Controller
                   control={form.control}
-                  name="categoryId"
+                  name="accountId"
                   render={({ field }) => (
-                    <Select
-                      value={field.value}
-                      onValueChange={field.onChange}
-                      disabled={incomeCategories.length === 0}
-                    >
-                      <SelectTrigger id="categoryId" className="w-full">
-                        <SelectValue placeholder="Pick a category" />
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger id="accountId" className="w-full">
+                        <SelectValue placeholder="Pick an account" />
                       </SelectTrigger>
                       <SelectContent>
-                        {incomeCategories.map((category) => (
-                          <SelectItem key={category.id} value={category.id}>
-                            {category.name}
+                        {accounts.map((account) => (
+                          <SelectItem key={account.id} value={account.id}>
+                            {account.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   )}
                 />
-                {incomeCategories.length === 0 && !categories.isPending ? (
-                  <p className="text-muted-foreground text-xs">
-                    {noCategoriesOfKindReason('INCOME')}
-                  </p>
-                ) : null}
-                {form.formState.errors.categoryId ? (
+                {form.formState.errors.accountId ? (
                   <p className="text-destructive text-xs">
-                    {form.formState.errors.categoryId.message}
+                    {form.formState.errors.accountId.message}
                   </p>
                 ) : null}
               </div>
-            </>
-          ) : (
-            /* Optional. "No merchant" is a first-class choice, not a fallback. */
-            <div className="grid gap-2">
-              <Label htmlFor="merchantId">Merchant</Label>
-              <Controller
-                control={form.control}
-                name="merchantId"
-                render={({ field }) => (
-                  <MerchantField
-                    id="merchantId"
-                    value={field.value}
-                    onChange={field.onChange}
-                    merchants={merchants}
+            )}
+
+            {/* Income is a single figure posted to the account — there is nothing to
+              itemise afterwards, so the amount is entered here and the row is
+              complete on save. An expense total belongs to its lines instead. */}
+            {isIncome ? (
+              <>
+                <div className="grid gap-2">
+                  <Label htmlFor="amount">Amount</Label>
+                  <Controller
+                    control={form.control}
+                    name="amount"
+                    render={({ field }) => (
+                      <CurrencyInput
+                        id="amount"
+                        currency={currency}
+                        value={field.value}
+                        onChange={field.onChange}
+                        onBlur={field.onBlur}
+                        aria-invalid={Boolean(form.formState.errors.amount)}
+                      />
+                    )}
                   />
-                )}
-              />
+                  {form.formState.errors.amount ? (
+                    <p className="text-destructive text-xs">
+                      {form.formState.errors.amount.message}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="grid gap-2">
+                  <Label htmlFor="categoryId">Category</Label>
+                  <Controller
+                    control={form.control}
+                    name="categoryId"
+                    render={({ field }) => (
+                      <Select
+                        value={field.value}
+                        onValueChange={field.onChange}
+                        disabled={incomeCategories.length === 0}
+                      >
+                        <SelectTrigger id="categoryId" className="w-full">
+                          <SelectValue placeholder="Pick a category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {incomeCategories.map((category) => (
+                            <SelectItem key={category.id} value={category.id}>
+                              {category.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                  {incomeCategories.length === 0 && !categories.isPending ? (
+                    <p className="text-muted-foreground text-xs">
+                      {noCategoriesOfKindReason('INCOME')}
+                    </p>
+                  ) : null}
+                  {form.formState.errors.categoryId ? (
+                    <p className="text-destructive text-xs">
+                      {form.formState.errors.categoryId.message}
+                    </p>
+                  ) : null}
+                </div>
+              </>
+            ) : (
+              /* Optional. "No merchant" is a first-class choice, not a fallback. */
+              <div className="grid gap-2">
+                <Label htmlFor="merchantId">Merchant</Label>
+                <Controller
+                  control={form.control}
+                  name="merchantId"
+                  render={({ field }) => (
+                    <MerchantField
+                      id="merchantId"
+                      value={field.value}
+                      onChange={field.onChange}
+                      merchants={merchants}
+                    />
+                  )}
+                />
+              </div>
+            )}
+
+            <div className="grid gap-2">
+              <Label htmlFor="occurredAt">Date</Label>
+              <Input id="occurredAt" type="date" {...form.register('occurredAt')} />
             </div>
-          )}
 
-          <div className="grid gap-2">
-            <Label htmlFor="occurredAt">Date</Label>
-            <Input id="occurredAt" type="date" {...form.register('occurredAt')} />
-          </div>
+            <div className="grid gap-2">
+              <Label htmlFor="description">Description</Label>
+              <Input id="description" placeholder="Optional" {...form.register('description')} />
+            </div>
 
-          <div className="grid gap-2">
-            <Label htmlFor="description">Description</Label>
-            <Input id="description" placeholder="Optional" {...form.register('description')} />
-          </div>
-
-          {/* Only an expense has a second step. Income is finished on save, and
+            {/* Only an expense has a second step. Income is finished on save, and
               saying otherwise would send the user looking for a receipt to itemise. */}
-          {transaction || isIncome ? null : (
-            <p className="text-muted-foreground text-xs">
-              The amount comes from what you add to the receipt. Open it after saving to enter what
-              was bought.
-            </p>
-          )}
-
+            {transaction || isIncome ? null : (
+              <p className="text-muted-foreground text-xs">
+                The amount comes from what you add to the receipt. Open it after saving to enter
+                what was bought.
+              </p>
+            )}
+          </DialogBody>
           <DialogFooter>
             <DialogClose asChild>
               <Button type="button" variant="ghost">

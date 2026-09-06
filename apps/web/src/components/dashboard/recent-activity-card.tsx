@@ -4,6 +4,7 @@ import { ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 
 import type { TransactionResponse } from '@/api';
+import { ListRow, ListRowGroup } from '@/components/shell/list-row';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { dayAndMonth, money } from '@/lib/format';
@@ -50,49 +51,44 @@ export const RecentActivityCard = ({
       ) : transactions.length === 0 ? (
         <p className="text-muted-foreground py-6 text-center text-sm">Nothing recorded yet.</p>
       ) : (
-        <ul className="flex flex-col gap-0.5">
+        <ListRowGroup className="flex flex-col gap-0.5 divide-y-0">
           {transactions.map((transaction, index) => (
-            <li
+            <ListRow
               key={transaction.id}
+              href={`/transactions/${transaction.id}`}
               className={cn(
-                'flex items-center gap-3 rounded-2xl px-2.5 py-2.5',
+                'items-center gap-3 rounded-2xl px-2.5 py-2.5',
                 // The lead row is filled rather than outlined — the design marks
                 // emphasis with a surface, never a border.
                 index === 0 ? 'bg-muted' : 'hover:bg-muted/60 transition-colors',
               )}
-            >
-              {/* A receipt has no single category, so the swatch takes the first
-                  line's — the same one the list's item summary shows. */}
-              <span
-                className="mt-0.5 size-2.5 shrink-0 rounded-full"
-                style={{
-                  background: transaction.items[0]?.category?.color ?? 'var(--muted-foreground)',
-                }}
-                aria-hidden
-              />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">
-                  {transaction.description ??
-                    transaction.merchant?.name ??
-                    transaction.items[0]?.name ??
-                    'Transaction'}
-                </p>
-                <p className="text-muted-foreground truncate text-xs">
-                  {dayAndMonth(transaction.occurredAt)} · {transaction.account.name}
-                </p>
-              </div>
-              <span
-                className={cn(
-                  'shrink-0 text-sm font-semibold tabular-nums',
-                  transaction.type === 'INCOME' ? 'text-income' : 'text-expense',
-                )}
-              >
-                {transaction.type === 'INCOME' ? '+' : '−'}
-                {money(transaction.amountMinor, transaction.currency)}
-              </span>
-            </li>
+              leading={
+                /* A receipt has no single category, so the swatch takes the first
+                   line's — the same one the list's item summary shows. */
+                <span
+                  className="size-2.5 rounded-full"
+                  style={{
+                    background: transaction.items[0]?.category?.color ?? 'var(--muted-foreground)',
+                  }}
+                  aria-hidden
+                />
+              }
+              title={
+                transaction.description ??
+                transaction.merchant?.name ??
+                transaction.items[0]?.name ??
+                'Transaction'
+              }
+              subtitle={`${dayAndMonth(transaction.occurredAt)} · ${transaction.account.name}`}
+              trailing={
+                <span className={transaction.type === 'INCOME' ? 'text-income' : 'text-expense'}>
+                  {transaction.type === 'INCOME' ? '+' : '−'}
+                  {money(transaction.amountMinor, transaction.currency)}
+                </span>
+              }
+            />
           ))}
-        </ul>
+        </ListRowGroup>
       )}
     </div>
   </Card>

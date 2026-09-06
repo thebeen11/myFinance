@@ -86,7 +86,9 @@ export default function DashboardPage() {
             <span className="bg-card ring-foreground/8 text-muted-foreground inline-flex h-9 items-center rounded-full px-4 text-sm ring-1">
               {longMonth(month.from)}
             </span>
-            <Button onClick={() => setDialogOpen(true)}>
+            {/* On a phone this is the FAB, which is reachable from every screen
+                rather than only from the top of two of them. */}
+            <Button className="hidden md:inline-flex" onClick={() => setDialogOpen(true)}>
               <Plus data-icon="inline-start" />
               Add transaction
             </Button>

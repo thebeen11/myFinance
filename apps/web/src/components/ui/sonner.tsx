@@ -9,12 +9,22 @@ import {
   Loader2Icon,
 } from 'lucide-react';
 
+import { useIsMobile } from '@/hooks/use-media-query';
+
 // Pinned to light: the app has one palette, so reading a theme preference here
 // would only let the toast disagree with everything behind it.
+//
+// Position is the one thing that cannot be a Tailwind variant: sonner portals the
+// toast outside the page and positions it from this prop, so the breakpoint has
+// to reach JavaScript. On a phone `top-right` lands under the sticky header and
+// beside the account avatar; `top-center` clears both.
 const Toaster = ({ ...props }: ToasterProps) => {
+  const isMobile = useIsMobile();
+
   return (
     <Sonner
       theme="light"
+      position={isMobile ? 'top-center' : 'top-right'}
       className="toaster group"
       icons={{
         success: <CircleCheckIcon className="size-4" />,

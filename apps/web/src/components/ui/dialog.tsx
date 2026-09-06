@@ -39,6 +39,23 @@ function DialogOverlay({
   );
 }
 
+/**
+ * A dialog on a desktop, a bottom sheet on a phone.
+ *
+ * Below `sm` the panel is anchored to the bottom edge and slides up: it is the
+ * shape a thumb can reach and dismiss, and it leaves the top of the screen — where
+ * a phone's own status bar and the app's sticky header live — alone. From `sm`
+ * upward every rule is overridden back to the centred zoom card the desktop
+ * design has always used.
+ *
+ * `max-h-[85dvh]` is the important half. `dvh`, not `vh`: with `vh` the panel is
+ * measured against the viewport as if the URL bar and the software keyboard were
+ * not there, which is exactly how a tall form used to render its own submit
+ * button off the bottom of the screen. The flex column plus `overflow-hidden`
+ * then makes that cap real, and `DialogBody` is the part allowed to scroll inside
+ * it — so the header and footer stay put while the fields move, as a native sheet
+ * does.
+ */
 function DialogContent({
   className,
   children,
@@ -53,11 +70,15 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          'fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
+          'fixed inset-x-0 bottom-0 z-50 flex max-h-[85dvh] w-full flex-col gap-4 overflow-hidden rounded-t-3xl bg-popover p-4 pb-[calc(1rem+var(--safe-b))] text-sm text-popover-foreground ring-1 ring-foreground/10 duration-200 outline-none data-open:animate-in data-open:fade-in-0 data-open:slide-in-from-bottom data-closed:animate-out data-closed:fade-out-0 data-closed:slide-out-to-bottom',
+          'sm:inset-x-auto sm:top-1/2 sm:bottom-auto sm:left-1/2 sm:max-w-sm sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:pb-4 sm:duration-100 sm:data-open:zoom-in-95 sm:data-open:slide-in-from-bottom-0 sm:data-closed:zoom-out-95 sm:data-closed:slide-out-to-bottom-0',
           className,
         )}
         {...props}
       >
+        {/* The affordance that says "this came from the bottom edge". Decorative:
+            the sheet is dismissed by the close button, the overlay or Escape. */}
+        <div className="bg-border mx-auto h-1 w-9 shrink-0 rounded-full sm:hidden" aria-hidden />
         {children}
         {showCloseButton && (
           <DialogPrimitive.Close data-slot="dialog-close" asChild>
@@ -72,9 +93,29 @@ function DialogContent({
   );
 }
 
+/**
+ * The scrolling middle of a dialog — everything between the header and the footer.
+ *
+ * The negative inline margin lets a focus ring and a hover surface reach the
+ * panel's padding edge instead of being clipped by the scroll container.
+ */
+function DialogBody({ className, ...props }: React.ComponentProps<'div'>) {
+  return (
+    <div
+      data-slot="dialog-body"
+      className={cn('-mx-4 min-h-0 flex-1 overflow-y-auto overscroll-contain px-4', className)}
+      {...props}
+    />
+  );
+}
+
 function DialogHeader({ className, ...props }: React.ComponentProps<'div'>) {
   return (
-    <div data-slot="dialog-header" className={cn('flex flex-col gap-2', className)} {...props} />
+    <div
+      data-slot="dialog-header"
+      className={cn('flex shrink-0 flex-col gap-2 pr-8', className)}
+      {...props}
+    />
   );
 }
 
@@ -90,7 +131,7 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        '-mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-xl border-t bg-muted/50 p-4 sm:flex-row sm:justify-end',
+        '-mx-4 -mb-[calc(1rem+var(--safe-b))] flex shrink-0 flex-col-reverse gap-2 border-t bg-muted/50 p-4 pb-[calc(1rem+var(--safe-b))] sm:-mb-4 sm:flex-row sm:justify-end sm:rounded-b-xl sm:pb-4',
         className,
       )}
       {...props}
@@ -133,6 +174,7 @@ function DialogDescription({
 
 export {
   Dialog,
+  DialogBody,
   DialogClose,
   DialogContent,
   DialogDescription,

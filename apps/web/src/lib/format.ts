@@ -85,6 +85,15 @@ export const longMonth = (isoDate: string): string =>
 /** ISO timestamp -> "2026-08-10", the value shape an <input type="date"> wants. */
 export const dateInputValue = (isoDate: string): string => isoDate.slice(0, 10);
 
+/**
+ * "3 products", "1 product" — a count with its noun, pluralised.
+ *
+ * The `${n} thing${n === 1 ? '' : 's'}` shape had been written out eight times
+ * before this existed. `plural` is for the nouns English does not form that way.
+ */
+export const countLabel = (count: number, noun: string, plural = `${noun}s`): string =>
+  `${count} ${count === 1 ? noun : plural}`;
+
 /** "Rina Wijaya" -> "RW"; a username splits on its dots too, so "rina.w" -> "RW". */
 export const initials = (name: string): string => {
   const words = name

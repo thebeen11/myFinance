@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogClose,
+  DialogBody,
   DialogContent,
   DialogFooter,
   DialogHeader,
@@ -132,127 +133,128 @@ export const CategoryDialog = ({
         </DialogHeader>
 
         <form
-          className="space-y-4"
+          className="flex min-h-0 flex-1 flex-col gap-4"
           onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
         >
-          <div className="grid gap-2">
-            <Label htmlFor="name">Name</Label>
-            <Input id="name" placeholder="Groceries" {...form.register('name')} />
-            {form.formState.errors.name ? (
-              <p className="text-destructive text-xs">{form.formState.errors.name.message}</p>
-            ) : null}
-          </div>
+          <DialogBody className="space-y-4">
+            <div className="grid gap-2">
+              <Label htmlFor="name">Name</Label>
+              <Input id="name" placeholder="Groceries" {...form.register('name')} />
+              {form.formState.errors.name ? (
+                <p className="text-destructive text-xs">{form.formState.errors.name.message}</p>
+              ) : null}
+            </div>
 
-          <div className="grid gap-2">
-            <Label htmlFor="accountId">Account</Label>
-            <Controller
-              control={form.control}
-              name="accountId"
-              render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger id="accountId" className="w-full">
-                    <SelectValue placeholder="Pick an account" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={UNASSIGNED_ACCOUNT}>No account</SelectItem>
-                    {(accounts.data?.data ?? []).map((account) => (
-                      <SelectItem key={account.id} value={account.id}>
-                        {account.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            />
-            <p className="text-muted-foreground text-xs">
-              Bound to an account, this category can only be used on transactions posted there.
-              Leave it unassigned to use it anywhere.
-            </p>
-          </div>
+            <div className="grid gap-2">
+              <Label htmlFor="accountId">Account</Label>
+              <Controller
+                control={form.control}
+                name="accountId"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger id="accountId" className="w-full">
+                      <SelectValue placeholder="Pick an account" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={UNASSIGNED_ACCOUNT}>No account</SelectItem>
+                      {(accounts.data?.data ?? []).map((account) => (
+                        <SelectItem key={account.id} value={account.id}>
+                          {account.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              <p className="text-muted-foreground text-xs">
+                Bound to an account, this category can only be used on transactions posted there.
+                Leave it unassigned to use it anywhere.
+              </p>
+            </div>
 
-          {/* A segmented control rather than a dropdown, matching the transaction
+            {/* A segmented control rather than a dropdown, matching the transaction
               form: a binary choice that changes what the category can be attached
               to should be visible, not collapsed behind a menu. */}
-          <div className="grid gap-2">
-            <Label>Kind</Label>
-            <Controller
-              control={form.control}
-              name="kind"
-              render={({ field }) => (
-                <div
-                  role="radiogroup"
-                  aria-label="Kind"
-                  className="bg-muted grid grid-cols-2 gap-1 rounded-full p-1"
-                >
-                  {(['EXPENSE', 'INCOME'] as const).map((option) => (
-                    <button
-                      key={option}
-                      type="button"
-                      role="radio"
-                      aria-checked={field.value === option}
-                      // Changing the kind of a category already in use would strand
-                      // every line filed under it: the API refuses to write a line
-                      // whose kind disagrees with its transaction's type.
-                      disabled={category !== undefined}
-                      onClick={() => field.onChange(option)}
-                      className={cn(
-                        'focus-visible:ring-ring/50 rounded-full py-1.5 text-sm font-medium transition-colors outline-none focus-visible:ring-3 disabled:cursor-not-allowed',
-                        field.value === option
-                          ? 'bg-card text-foreground ring-foreground/8 ring-1'
-                          : 'text-muted-foreground hover:text-foreground disabled:hover:text-muted-foreground',
-                      )}
-                    >
-                      {option === 'EXPENSE' ? 'Expense' : 'Income'}
-                    </button>
-                  ))}
-                </div>
-              )}
-            />
-            {category ? (
-              <p className="text-muted-foreground text-xs">
-                Kind cannot change once a category exists. Create a new one instead.
-              </p>
-            ) : null}
-          </div>
+            <div className="grid gap-2">
+              <Label>Kind</Label>
+              <Controller
+                control={form.control}
+                name="kind"
+                render={({ field }) => (
+                  <div
+                    role="radiogroup"
+                    aria-label="Kind"
+                    className="bg-muted grid grid-cols-2 gap-1 rounded-full p-1"
+                  >
+                    {(['EXPENSE', 'INCOME'] as const).map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        role="radio"
+                        aria-checked={field.value === option}
+                        // Changing the kind of a category already in use would strand
+                        // every line filed under it: the API refuses to write a line
+                        // whose kind disagrees with its transaction's type.
+                        disabled={category !== undefined}
+                        onClick={() => field.onChange(option)}
+                        className={cn(
+                          'focus-visible:ring-ring/50 rounded-full py-1.5 text-sm font-medium transition-colors outline-none focus-visible:ring-3 disabled:cursor-not-allowed',
+                          field.value === option
+                            ? 'bg-card text-foreground ring-foreground/8 ring-1'
+                            : 'text-muted-foreground hover:text-foreground disabled:hover:text-muted-foreground',
+                        )}
+                      >
+                        {option === 'EXPENSE' ? 'Expense' : 'Income'}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              />
+              {category ? (
+                <p className="text-muted-foreground text-xs">
+                  Kind cannot change once a category exists. Create a new one instead.
+                </p>
+              ) : null}
+            </div>
 
-          <div className="grid gap-2">
-            <Label>Colour</Label>
-            <Controller
-              control={form.control}
-              name="color"
-              render={({ field }) => (
-                <div className="flex flex-wrap items-center gap-2">
-                  {SWATCHES.map((swatch) => (
-                    <button
-                      key={swatch}
-                      type="button"
-                      aria-label={`Use ${swatch}`}
-                      aria-pressed={field.value.toLowerCase() === swatch}
-                      onClick={() => field.onChange(swatch)}
-                      style={{ background: swatch }}
-                      className={cn(
-                        'focus-visible:ring-ring/50 size-7 rounded-full outline-none focus-visible:ring-3',
-                        field.value.toLowerCase() === swatch
-                          ? 'ring-foreground/40 ring-2 ring-offset-2'
-                          : 'ring-foreground/8 ring-1',
-                      )}
+            <div className="grid gap-2">
+              <Label>Colour</Label>
+              <Controller
+                control={form.control}
+                name="color"
+                render={({ field }) => (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {SWATCHES.map((swatch) => (
+                      <button
+                        key={swatch}
+                        type="button"
+                        aria-label={`Use ${swatch}`}
+                        aria-pressed={field.value.toLowerCase() === swatch}
+                        onClick={() => field.onChange(swatch)}
+                        style={{ background: swatch }}
+                        className={cn(
+                          'focus-visible:ring-ring/50 size-7 rounded-full outline-none focus-visible:ring-3',
+                          field.value.toLowerCase() === swatch
+                            ? 'ring-foreground/40 ring-2 ring-offset-2'
+                            : 'ring-foreground/8 ring-1',
+                        )}
+                      />
+                    ))}
+                    <input
+                      type="color"
+                      aria-label="Custom colour"
+                      value={field.value}
+                      onChange={(event) => field.onChange(event.target.value)}
+                      className="ring-foreground/8 size-7 cursor-pointer rounded-full bg-transparent ring-1"
                     />
-                  ))}
-                  <input
-                    type="color"
-                    aria-label="Custom colour"
-                    value={field.value}
-                    onChange={(event) => field.onChange(event.target.value)}
-                    className="ring-foreground/8 size-7 cursor-pointer rounded-full bg-transparent ring-1"
-                  />
-                </div>
-              )}
-            />
-            {form.formState.errors.color ? (
-              <p className="text-destructive text-xs">{form.formState.errors.color.message}</p>
-            ) : null}
-          </div>
-
+                  </div>
+                )}
+              />
+              {form.formState.errors.color ? (
+                <p className="text-destructive text-xs">{form.formState.errors.color.message}</p>
+              ) : null}
+            </div>
+          </DialogBody>
           <DialogFooter>
             <DialogClose asChild>
               <Button type="button" variant="ghost">
