@@ -21,6 +21,8 @@ export const transactionInclude = {
   category: { select: { id: true, name: true, kind: true, color: true } },
   items: {
     include: {
+      /** In order: they cascade, so the order is the arithmetic, not a preference. */
+      discounts: { orderBy: { position: 'asc' } },
       product: { select: { id: true, code: true, name: true } },
       category: {
         select: {

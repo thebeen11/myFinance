@@ -49,15 +49,16 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  accounts               Account[]
-  categories             Category[]
-  merchants              Merchant[]
-  products               Product[]
-  transactions           Transaction[]
-  transactionItems       TransactionItem[]
-  transactionCharges     TransactionCharge[]
-  transactionSettlements TransactionSettlement[]
-  refreshTokens          RefreshToken[]
+  accounts                 Account[]
+  categories               Category[]
+  merchants                Merchant[]
+  products                 Product[]
+  transactions             Transaction[]
+  transactionItems         TransactionItem[]
+  transactionItemDiscounts TransactionItemDiscount[]
+  transactionCharges       TransactionCharge[]
+  transactionSettlements   TransactionSettlement[]
+  refreshTokens            RefreshToken[]
 
   @@map("users")
 }
@@ -297,17 +298,17 @@ model TransactionItem {
   name                String
   quantity            Int    @default(1)
   unitPriceMinor      Int
-  /// Basis points off this line — 10% is 1000. An integer for the same reason
-  /// money is: a stored float drifts. Zero is "no discount".
+  /// What the whole discount cascade comes to as one rate — 10% is 1000. Zero is
+  /// "no discount".
   ///
-  /// **The rate is what is stored and the money is derived from it**, which is the
-  /// opposite of TransactionCharge.percentBasisPoints — there the amount is typed
-  /// to match the printed receipt and the percentage only records how it was
-  /// reached. A line's gross is already known here, so deriving keeps quantity,
-  /// price and discount from ever disagreeing.
+  /// **Derived, not typed.** The discounts themselves live in
+  /// TransactionItemDiscount, one row each; this is the headline figure a table
+  /// cell can show without joining them. Recomputed by the API alongside
+  /// discountMinor whenever a line is written, so it can never describe a set of
+  /// rows that is no longer there.
   discountBasisPoints Int    @default(0)
-  /// quantity * unitPriceMinor * discountBasisPoints / 10000, computed by the API
-  /// alongside lineTotalMinor so the rate and the money can never disagree.
+  /// The sum of this line's discount rows, computed by the API alongside
+  /// lineTotalMinor so the parts and the whole can never disagree.
   discountMinor       Int    @default(0)
   /// quantity * unitPriceMinor - discountMinor, computed by the API so the parts
   /// and the whole can never disagree.
@@ -323,11 +324,53 @@ model TransactionItem {
   product     Product?    @relation(fields: [productId], references: [id], onDelete: SetNull)
   category    Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
+  discounts TransactionItemDiscount[]
+
   @@index([transactionId])
   @@index([userId])
   @@index([productId])
   @@index([categoryId])
   @@map("transaction_items")
+}
+
+/// One discount off a single line, in the order the receipt prints them.
+///
+/// **Cascading, not additive**: each row applies to what the rows above it left
+/// behind. A 20% promo and then a 5% member discount on 55_000 come to 11_000 and
+/// 2_200 — the member rate reads against the 44_000 the promo left, not against
+/// the gross. Which is why `position` is data, not decoration: reordering the
+/// rows changes the money.
+///
+/// `basisPoints` and `amountMinor` are an either/or. With a rate, the money is
+/// derived from it and re-derives when the quantity moves — the rule this line
+/// already had when it could carry only one discount. With `basisPoints` null the
+/// amount was typed as a lump sum — a voucher off the line, not off a unit — and
+/// stands on its own.
+model TransactionItemDiscount {
+  id                String @id @default(uuid()) @db.Uuid
+  /// Denormalised from the parent line, same precedent as TransactionItem.userId.
+  userId            String @db.Uuid
+  transactionItemId String @db.Uuid
+
+  /// As printed — "Member", "Promo". Null when the receipt only prints a figure.
+  name        String?
+  /// Basis points off what is left at this point in the cascade (10% is 1000).
+  /// Null when the amount was typed straight in.
+  basisPoints Int?
+  /// What this row came to, in minor units. Derived when `basisPoints` is set.
+  amountMinor Int
+  /// Order on the line, which is also the order the cascade applies in.
+  position    Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  item TransactionItem @relation(fields: [transactionItemId], references: [id], onDelete: Cascade)
+
+  @@index([transactionItemId])
+  @@index([userId])
+  @@map("transaction_item_discounts")
 }
 
 /// Money that was paid but not bought — tax, service charge, delivery, packaging.

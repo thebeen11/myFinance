@@ -359,6 +359,23 @@ export type TransactionMerchantResponse = {
   name: string;
 };
 
+export type TransactionItemDiscountResponse = {
+  id: string;
+  name?: string | null;
+  /**
+   * Basis points off the running remainder (5% is 500). Null for a typed lump sum.
+   */
+  basisPoints?: number | null;
+  /**
+   * What this row came to, in minor units.
+   */
+  amountMinor: number;
+  /**
+   * Order on the line, which is the order the cascade applies in.
+   */
+  position: number;
+};
+
 export type TransactionItemProductResponse = {
   id: string;
   code?: string | null;
@@ -371,11 +388,15 @@ export type TransactionItemResponse = {
   quantity: number;
   unitPriceMinor: number;
   /**
-   * Basis points off this line (10% is 1000). Zero when nothing was discounted.
+   * Every discount off this line, in the order they cascade.
+   */
+  discounts: Array<TransactionItemDiscountResponse>;
+  /**
+   * What the whole cascade comes to as one rate (24% is 2400), derived by the API. Zero when nothing was discounted.
    */
   discountBasisPoints: number;
   /**
-   * quantity × unitPriceMinor × discountBasisPoints ÷ 10000, derived by the API.
+   * The sum of `discounts`, derived by the API.
    */
   discountMinor: number;
   /**
@@ -620,6 +641,21 @@ export type UpdateTransactionDto = {
   charges?: Array<CreateTransactionChargeDto>;
 };
 
+export type TransactionItemDiscountDto = {
+  /**
+   * As printed. Null when the receipt only prints a figure.
+   */
+  name?: string | null;
+  /**
+   * Basis points off what is left at this point in the cascade (20% is 2000). The API derives the money from it. Omit when giving an amount instead.
+   */
+  basisPoints?: number | null;
+  /**
+   * A lump sum off the line — a voucher — in minor units. Unaffected by the quantity. Omit when giving a rate instead.
+   */
+  amountMinor?: number | null;
+};
+
 export type CreateTransactionItemDto = {
   /**
    * Optional link to the catalogue. A line typed by hand has none and needs no
@@ -642,9 +678,18 @@ export type CreateTransactionItemDto = {
    */
   unitPriceMinor: number;
   /**
-   * Basis points off this line (10% is 1000). The API derives the money from it.
+   * Every discount on this line, in the order the receipt prints them.
+   *
+   * The order is the answer, not a display preference: they **cascade**, each one
+   * off what the ones above it left behind. 55_000 at 20% and then 5% comes to
+   * 11_000 and 2_200, because the second rate reads against the 44_000 the first
+   * left — swapping the two changes both figures.
+   *
+   * The API derives `discountMinor` and `lineTotalMinor` from them, the same way
+   * it already owns the line total. Absent means no discount; on an update, an
+   * empty array clears the ones that are there while absent leaves them alone.
    */
-  discountBasisPoints?: number;
+  discounts?: Array<TransactionItemDiscountDto>;
 };
 
 export type UpdateTransactionItemDto = {
@@ -669,9 +714,18 @@ export type UpdateTransactionItemDto = {
    */
   unitPriceMinor?: number;
   /**
-   * Basis points off this line (10% is 1000). The API derives the money from it.
+   * Every discount on this line, in the order the receipt prints them.
+   *
+   * The order is the answer, not a display preference: they **cascade**, each one
+   * off what the ones above it left behind. 55_000 at 20% and then 5% comes to
+   * 11_000 and 2_200, because the second rate reads against the 44_000 the first
+   * left — swapping the two changes both figures.
+   *
+   * The API derives `discountMinor` and `lineTotalMinor` from them, the same way
+   * it already owns the line total. Absent means no discount; on an update, an
+   * empty array clears the ones that are there while absent leaves them alone.
    */
-  discountBasisPoints?: number;
+  discounts?: Array<TransactionItemDiscountDto>;
 };
 
 export type CreateSettlementDto = {
@@ -752,6 +806,123 @@ export type OutstandingReimbursementsResponse = {
    */
   data: Array<OutstandingReimbursementResponse>;
   totalsByCurrency: Array<OutstandingCurrencyTotalResponse>;
+};
+
+export type ScanReceiptDto = {
+  /**
+   * The account this receipt will be paid from.
+   */
+  accountId: string;
+  mimeType: 'image/jpeg' | 'image/png' | 'image/webp';
+  /**
+   * The photo, base64 encoded, without a data: URL prefix.
+   */
+  imageBase64: string;
+};
+
+export type ReceiptDraftMerchantResponse = {
+  /**
+   * The matched merchant, or null when nothing in the catalogue matched.
+   */
+  id?: string | null;
+  /**
+   * The merchant's catalogue name when matched, otherwise the name as printed.
+   */
+  name?: string | null;
+};
+
+export type ReceiptDraftDiscountResponse = {
+  name?: string | null;
+  /**
+   * Basis points off the running remainder (5% is 500).
+   */
+  basisPoints?: number | null;
+  /**
+   * A lump sum off the line, in minor units, when the receipt printed one.
+   */
+  amountMinor?: number | null;
+};
+
+export type ReceiptDraftLineResponse = {
+  /**
+   * The catalogue product this line matched, or null when it is new.
+   */
+  productId?: string | null;
+  /**
+   * The matched product's category. Null when unmatched — the reviewer picks one.
+   */
+  categoryId?: string | null;
+  categoryName?: string | null;
+  name: string;
+  quantity: number;
+  /**
+   * Per unit, in the account's minor units.
+   */
+  unitPriceMinor: number;
+  /**
+   * Every discount printed under this line, in the order they cascade.
+   */
+  discounts: Array<ReceiptDraftDiscountResponse>;
+  /**
+   * What the whole cascade comes to as one rate (24% is 2400).
+   */
+  discountBasisPoints: number;
+  /**
+   * quantity × unitPriceMinor less the discounts, derived the same way a saved line is.
+   */
+  lineTotalMinor: number;
+};
+
+export type ReceiptDraftChargeResponse = {
+  name: string;
+  /**
+   * Basis points (11% is 1100), when the receipt printed a rate.
+   */
+  percentBasisPoints?: number | null;
+  amountMinor: number;
+};
+
+export type ReceiptDraftResponse = {
+  /**
+   * The account the amounts below were scaled for.
+   */
+  accountId: string;
+  /**
+   * The account's currency. Every *Minor field is in it.
+   */
+  currency: string;
+  merchant: ReceiptDraftMerchantResponse;
+  /**
+   * The printed date at UTC midnight, or null when the receipt showed none.
+   */
+  occurredAt?: string | null;
+  /**
+   * Seeded from the merchant name, so the transaction row reads as something.
+   */
+  description?: string | null;
+  lines: Array<ReceiptDraftLineResponse>;
+  charges: Array<ReceiptDraftChargeResponse>;
+  /**
+   * The grand total as printed on the receipt. Null when it was unreadable.
+   */
+  printedTotalMinor?: number | null;
+  /**
+   * The sum of the lines and charges above. Disagreement means something was misread.
+   */
+  derivedTotalMinor: number;
+};
+
+export type CreateReceiptDto = {
+  accountId: string;
+  merchantId?: string | null;
+  occurredAt: string;
+  description?: string;
+  notes?: string;
+  /**
+   * Reuses the line shape the per-item endpoints already validate.
+   */
+  items: Array<CreateTransactionItemDto>;
+  charges?: Array<CreateTransactionChargeDto>;
 };
 
 export type AuthRegisterData = {
@@ -1368,3 +1539,29 @@ export type ReimbursementsFindOutstandingResponses = {
 
 export type ReimbursementsFindOutstandingResponse =
   ReimbursementsFindOutstandingResponses[keyof ReimbursementsFindOutstandingResponses];
+
+export type ReceiptsScanData = {
+  body: ScanReceiptDto;
+  path?: never;
+  query?: never;
+  url: '/receipts/scan';
+};
+
+export type ReceiptsScanResponses = {
+  200: ReceiptDraftResponse;
+};
+
+export type ReceiptsScanResponse = ReceiptsScanResponses[keyof ReceiptsScanResponses];
+
+export type ReceiptsCreateData = {
+  body: CreateReceiptDto;
+  path?: never;
+  query?: never;
+  url: '/receipts';
+};
+
+export type ReceiptsCreateResponses = {
+  201: TransactionResponse;
+};
+
+export type ReceiptsCreateResponse = ReceiptsCreateResponses[keyof ReceiptsCreateResponses];

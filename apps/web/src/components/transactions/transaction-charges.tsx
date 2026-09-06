@@ -2,7 +2,13 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { BASIS_POINTS_SCALE, applyBasisPoints, fromMinor, toMinor } from '@myfinance/shared';
+import {
+  applyBasisPoints,
+  basisPointsToPercent,
+  fromMinor,
+  percentToBasisPoints,
+  toMinor,
+} from '@myfinance/shared';
 import { Pencil, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Controller, useFieldArray, useForm, useWatch } from 'react-hook-form';
@@ -39,23 +45,11 @@ const schema = z.object({
 
 type FormValues = z.input<typeof schema>;
 
-/**
- * The percentage a row was seeded from, as a whole percent for the form.
- * Basis points are the wire format; nobody types "1100" for eleven percent.
- */
-const toPercent = (basisPoints: number | null | undefined): number | undefined =>
-  basisPoints == null ? undefined : basisPoints / 100;
-
-const toBasisPoints = (percent: number | undefined): number | null =>
-  percent === undefined || !Number.isFinite(percent)
-    ? null
-    : Math.round((percent * BASIS_POINTS_SCALE) / 100);
-
 /** The form's view of the server's rows — the shape the effect and Cancel both reset to. */
 const toFormValues = (transaction: TransactionResponse | undefined): FormValues => ({
   charges: (transaction?.charges ?? []).map((charge) => ({
     name: charge.name,
-    percent: toPercent(charge.percentBasisPoints),
+    percent: basisPointsToPercent(charge.percentBasisPoints),
     amount: fromMinor(charge.amountMinor, transaction?.currency ?? 'IDR'),
   })),
 });
@@ -123,7 +117,7 @@ export const useTransactionCharges = (transaction: TransactionResponse | undefin
 
     // Same helper a line's discount derives with, so the two percentage fields on
     // this page cannot round differently — only *when* they apply differs.
-    const seeded = applyBasisPoints(baseFor(index), toBasisPoints(percent) ?? 0);
+    const seeded = applyBasisPoints(baseFor(index), percentToBasisPoints(percent) ?? 0);
     form.setValue(`charges.${index}.amount`, fromMinor(seeded, currency));
   };
 
@@ -138,7 +132,7 @@ export const useTransactionCharges = (transaction: TransactionResponse | undefin
         body: {
           charges: parsed.charges.map((charge) => ({
             name: charge.name,
-            percentBasisPoints: toBasisPoints(charge.percent),
+            percentBasisPoints: percentToBasisPoints(charge.percent),
             amountMinor: toMinor(charge.amount, transaction.currency),
           })),
         },

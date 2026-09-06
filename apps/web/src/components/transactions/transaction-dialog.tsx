@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { transactionsCreate, transactionsUpdate } from '@/api';
 import type { AccountResponse, MerchantResponse, TransactionResponse } from '@/api';
 import { CurrencyInput } from '@/components/forms/currency-input';
+import { MerchantField, NO_MERCHANT } from '@/components/merchants/merchant-field';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -80,9 +81,6 @@ const schema = z
   });
 
 type FormValues = z.input<typeof schema>;
-
-/** A SelectItem value cannot be `''`, so "no merchant" needs a sentinel of its own. */
-const NO_MERCHANT = '__none__';
 
 interface TransactionDialogProps {
   accounts: AccountResponse[];
@@ -379,19 +377,12 @@ export const TransactionDialog = ({
                 control={form.control}
                 name="merchantId"
                 render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger id="merchantId" className="w-full">
-                      <SelectValue placeholder="No merchant" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={NO_MERCHANT}>No merchant</SelectItem>
-                      {merchants.map((merchant) => (
-                        <SelectItem key={merchant.id} value={merchant.id}>
-                          {merchant.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <MerchantField
+                    id="merchantId"
+                    value={field.value}
+                    onChange={field.onChange}
+                    merchants={merchants}
+                  />
                 )}
               />
             </div>

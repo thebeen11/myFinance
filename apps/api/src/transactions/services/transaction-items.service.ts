@@ -1,20 +1,41 @@
+import { randomUUID } from 'node:crypto';
+
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { TransactionType, applyBasisPoints } from '@myfinance/shared';
+import { TransactionType, cascadeDiscounts } from '@myfinance/shared';
+import type { LineDiscountInput } from '@myfinance/shared';
 
 import { PrismaService } from '../../database/prisma.service';
 import { Prisma } from '../../generated/prisma/client';
 import type {
   CategoryModel,
   ProductModel,
+  TransactionItemDiscountModel,
   TransactionItemModel,
   TransactionModel,
 } from '../../generated/prisma/models';
 import { CreateTransactionItemDto } from '../models/create-transaction-item.dto';
+import { TransactionItemDiscountDto } from '../models/transaction-item-discount.dto';
 import { TransactionResponse } from '../models/transaction.response';
 import { UpdateTransactionItemDto } from '../models/update-transaction-item.dto';
 
 import { assertNotSettlementPosting } from './assert-not-settlement-posting';
 import { TransactionsService } from './transactions.service';
+
+/** A discount with its either/or resolved: exactly one of the two is set. */
+interface NormalisedDiscount extends LineDiscountInput {
+  name: string | null;
+}
+
+/** What a line's money works out to, plus the rows that explain it. */
+interface DerivedLine extends Pick<
+  TransactionItemModel,
+  'discountBasisPoints' | 'discountMinor' | 'lineTotalMinor'
+> {
+  discountRows: Omit<
+    TransactionItemDiscountModel,
+    'id' | 'userId' | 'transactionItemId' | 'createdAt' | 'updatedAt'
+  >[];
+}
 
 /**
  * The line items of a receipt, edited one row at a time.
@@ -28,6 +49,13 @@ import { TransactionsService } from './transactions.service';
  * The recompute itself lives on `TransactionsService`, because additional charges
  * feed the same column from a different write path and the two must never derive
  * it differently.
+ *
+ * A line's discounts are rows of their own and they **cascade**: each comes off
+ * what the ones above it left, so their order is arithmetic rather than
+ * presentation. A rate row stores the rate and re-derives its money whenever the
+ * line moves; a typed amount is a lump sum that does not. Both are priced by
+ * `cascadeDiscounts` in `@myfinance/shared`, which is also what the browser
+ * previews with, so what is shown before saving is what gets stored.
  *
  * Each method returns the whole parent `TransactionResponse` rather than the line
  * it touched, so an item editor re-renders its total and its rows from one reply.
@@ -48,6 +76,13 @@ export class TransactionItemsService {
     const category = await this.getCategoryOrThrow(userId, dto.categoryId, transaction.type);
     const product = await this.getProductOrThrow(userId, dto.productId ?? undefined);
 
+    const { discountRows, ...totals } = this.deriveTotals(
+      dto.name,
+      dto.quantity,
+      dto.unitPriceMinor,
+      this.normaliseDiscounts(dto.name, dto.discounts ?? []),
+    );
+
     await this.prisma.$transaction(async (tx) => {
       const last = await tx.transactionItem.findFirst({
         where: { transactionId },
@@ -64,8 +99,10 @@ export class TransactionItemsService {
           name: dto.name,
           quantity: dto.quantity,
           unitPriceMinor: dto.unitPriceMinor,
-          ...this.deriveTotals(dto.quantity, dto.unitPriceMinor, dto.discountBasisPoints ?? 0),
+          ...totals,
           position: (last?.position ?? -1) + 1,
+          // Nested, so the line and what explains it are one statement.
+          discounts: { create: discountRows.map((row) => ({ userId, ...row })) },
         },
       });
 
@@ -74,6 +111,99 @@ export class TransactionItemsService {
     });
 
     return this.transactionsService.findOne(userId, transactionId);
+  }
+
+  /**
+   * Writes a whole receipt's lines inside a caller's transaction.
+   *
+   * Exists for `ReceiptsService`, which posts a scanned receipt as one atomic
+   * write. It does **not** recompute the parent total or return a response — the
+   * caller owns the transaction, and it is creating the header in the same one.
+   *
+   * Kept beside the single-line `create` rather than replacing its body: this
+   * path resolves every category and product in two batched queries because a
+   * receipt is fifteen lines and a lookup each would be the N+1 the repo bans,
+   * while `create` answers for exactly one line and its behaviour is pinned by
+   * its own specs. The two share what must never diverge — `deriveTotals` and
+   * `syncLastPrice`, which carry the money rules — and differ only in how many
+   * rows they read at a time.
+   *
+   * @throws NotFoundException when a category or product is not the user's.
+   * @throws BadRequestException when a category's kind disagrees with the type.
+   */
+  async createManyInTransaction(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    transaction: Pick<TransactionModel, 'id' | 'type' | 'currency'>,
+    dtos: CreateTransactionItemDto[],
+  ): Promise<void> {
+    if (dtos.length === 0) return;
+
+    const categories = await this.getCategoriesOrThrow(
+      tx,
+      userId,
+      dtos.map((dto) => dto.categoryId),
+      transaction.type,
+    );
+
+    const products = await this.getProductsOrThrow(
+      tx,
+      userId,
+      dtos.map((dto) => dto.productId).filter((id): id is string => Boolean(id)),
+    );
+
+    // Ids up front because `createMany` cannot nest a relation and does not hand
+    // back what it wrote: with the ids known, the discounts are a second
+    // `createMany` rather than a lookup per line.
+    const derived = dtos.map((dto) => ({
+      id: randomUUID(),
+      ...this.deriveTotals(
+        dto.name,
+        dto.quantity,
+        dto.unitPriceMinor,
+        this.normaliseDiscounts(dto.name, dto.discounts ?? []),
+      ),
+    }));
+
+    await tx.transactionItem.createMany({
+      data: dtos.map((dto, position) => {
+        const { id, discountBasisPoints, discountMinor, lineTotalMinor } = derived[position];
+
+        return {
+          id,
+          userId,
+          transactionId: transaction.id,
+          productId: dto.productId ?? null,
+          categoryId: categories.get(dto.categoryId)?.id ?? null,
+          name: dto.name,
+          quantity: dto.quantity,
+          unitPriceMinor: dto.unitPriceMinor,
+          discountBasisPoints,
+          discountMinor,
+          lineTotalMinor,
+          position,
+        };
+      }),
+    });
+
+    await tx.transactionItemDiscount.createMany({
+      data: derived.flatMap((line) =>
+        line.discountRows.map((row) => ({ userId, transactionItemId: line.id, ...row })),
+      ),
+    });
+
+    // Last line wins, which is what posting these one at a time would have left
+    // behind. Sequential rather than in parallel: every statement in an
+    // interactive transaction shares one connection.
+    const lastPriceByProduct = new Map<string, number>();
+
+    for (const dto of dtos) {
+      if (dto.productId) lastPriceByProduct.set(dto.productId, dto.unitPriceMinor);
+    }
+
+    for (const [productId, unitPriceMinor] of lastPriceByProduct) {
+      await this.syncLastPrice(tx, products.get(productId), transaction.currency, unitPriceMinor);
+    }
   }
 
   async update(
@@ -93,12 +223,23 @@ export class TransactionItemsService {
     // not looked up as an id. The write below keeps the two apart.
     const product = await this.getProductOrThrow(userId, dto.productId ?? undefined);
 
-    // Merged rather than patched, because all three feed one derivation: editing
-    // only the quantity still has to re-apply the rate the line already carries,
-    // or the stored discount would describe the price it used to be.
+    // Merged rather than patched, because all of these feed one derivation: editing
+    // only the quantity still has to re-cascade the rates the line already carries,
+    // or the stored discounts would describe the price it used to be. An absent
+    // array leaves them alone; an empty one clears them.
+    const name = dto.name ?? existing.name;
     const quantity = dto.quantity ?? existing.quantity;
     const unitPriceMinor = dto.unitPriceMinor ?? existing.unitPriceMinor;
-    const discountBasisPoints = dto.discountBasisPoints ?? existing.discountBasisPoints;
+    const discounts = dto.discounts
+      ? this.normaliseDiscounts(name, dto.discounts)
+      : this.toDiscountInputs(existing.discounts);
+
+    const { discountRows, ...totals } = this.deriveTotals(
+      name,
+      quantity,
+      unitPriceMinor,
+      discounts,
+    );
 
     await this.prisma.$transaction(async (tx) => {
       await tx.transactionItem.update({
@@ -110,7 +251,13 @@ export class TransactionItemsService {
           name: dto.name,
           quantity,
           unitPriceMinor,
-          ...this.deriveTotals(quantity, unitPriceMinor, discountBasisPoints),
+          ...totals,
+          // Replaced wholesale rather than diffed: the rows are a list whose order
+          // is the arithmetic, so there is no stable identity to patch against.
+          discounts: {
+            deleteMany: {},
+            create: discountRows.map((row) => ({ userId, ...row })),
+          },
         },
       });
 
@@ -138,21 +285,93 @@ export class TransactionItemsService {
   }
 
   /**
-   * The money a line derives from the three figures a client may set.
+   * The money a line derives from the figures a client may set.
    *
-   * One helper rather than the arithmetic twice, because `create` and `update`
-   * would otherwise be free to round differently and only one of them would be
-   * covered the day the rule changes.
+   * One helper rather than the arithmetic three times, because `create`, `update`
+   * and the bulk path would otherwise be free to round differently and only one of
+   * them would be covered the day the rule changes. The cascade itself lives in
+   * `@myfinance/shared`, so the browser can preview the figure that will be stored
+   * rather than one that usually agrees with it.
+   *
+   * @throws BadRequestException when the discounts take off more than the line is
+   *   worth. A clamp would be quieter and would hide a mistyped receipt, and
+   *   `Transaction.amountMinor` is always positive.
    */
   private deriveTotals(
+    name: string,
     quantity: number,
     unitPriceMinor: number,
-    discountBasisPoints: number,
-  ): Pick<TransactionItemModel, 'discountBasisPoints' | 'discountMinor' | 'lineTotalMinor'> {
-    const grossMinor = quantity * unitPriceMinor;
-    const discountMinor = applyBasisPoints(grossMinor, discountBasisPoints);
+    discounts: NormalisedDiscount[],
+  ): DerivedLine {
+    const cascaded = cascadeDiscounts(quantity * unitPriceMinor, discounts);
 
-    return { discountBasisPoints, discountMinor, lineTotalMinor: grossMinor - discountMinor };
+    if (cascaded.lineTotalMinor < 0) {
+      throw new BadRequestException(
+        `Discounts on "${name}" come to more than the line is worth. ` +
+          'Reduce them so the line total is not negative.',
+      );
+    }
+
+    return {
+      discountBasisPoints: cascaded.effectiveBasisPoints,
+      discountMinor: cascaded.discountMinor,
+      lineTotalMinor: cascaded.lineTotalMinor,
+      discountRows: cascaded.discounts.map((discount, position) => ({
+        name: discounts[position].name,
+        basisPoints: discount.basisPoints,
+        amountMinor: discount.amountMinor,
+        position,
+      })),
+    };
+  }
+
+  /**
+   * Turns what a client sent into rows the cascade can price.
+   *
+   * The either/or is enforced here rather than by a decorator because only this
+   * layer knows which line it is on, and "which one" is the whole question the
+   * message has to answer.
+   *
+   * @throws BadRequestException when a row sets neither figure or both.
+   */
+  private normaliseDiscounts(
+    name: string,
+    discounts: TransactionItemDiscountDto[],
+  ): NormalisedDiscount[] {
+    return discounts.map((discount) => {
+      const hasRate = discount.basisPoints !== undefined && discount.basisPoints !== null;
+      const hasAmount = discount.amountMinor !== undefined && discount.amountMinor !== null;
+
+      if (hasRate === hasAmount) {
+        throw new BadRequestException(
+          `A discount on "${name}" must be either a rate or an amount, not ${
+            hasRate ? 'both' : 'neither'
+          }.`,
+        );
+      }
+
+      return {
+        name: discount.name ?? null,
+        basisPoints: hasRate ? (discount.basisPoints as number) : null,
+        amountMinor: hasRate ? null : (discount.amountMinor as number),
+      };
+    });
+  }
+
+  /**
+   * The stored rows read back as inputs, so an edit that says nothing about the
+   * discounts re-cascades exactly what the line already carries.
+   *
+   * A stored rate row carries both columns — the rate and what it came to — and
+   * only the rate is the input; handing the amount back too would pin a rate row
+   * to the money it was worth at the old quantity.
+   */
+  private toDiscountInputs(discounts: TransactionItemDiscountModel[]): NormalisedDiscount[] {
+    return discounts.map((discount) => ({
+      name: discount.name,
+      basisPoints: discount.basisPoints,
+      amountMinor: discount.basisPoints === null ? discount.amountMinor : null,
+    }));
   }
 
   /**
@@ -217,14 +436,20 @@ export class TransactionItemsService {
     return transaction;
   }
 
-  /** Scoped by owner *and* parent, so an id from another receipt reads as missing. */
+  /**
+   * Scoped by owner *and* parent, so an id from another receipt reads as missing.
+   *
+   * The discounts come with it because `update` re-derives from them whenever the
+   * caller said nothing about them, and they only mean anything in order.
+   */
   private async getItemOrThrow(
     userId: string,
     transactionId: string,
     itemId: string,
-  ): Promise<TransactionItemModel> {
+  ): Promise<TransactionItemModel & { discounts: TransactionItemDiscountModel[] }> {
     const item = await this.prisma.transactionItem.findFirst({
       where: { id: itemId, transactionId, userId },
+      include: { discounts: { orderBy: { position: 'asc' } } },
     });
 
     if (!item) {
@@ -282,5 +507,61 @@ export class TransactionItemsService {
     }
 
     return product;
+  }
+
+  /**
+   * The batched form of `getCategoryOrThrow`, keyed by id for the write below.
+   *
+   * One query for the whole receipt, and the same two rules: a category that is
+   * not the user's reads as missing, and one whose kind disagrees with the
+   * transaction is refused by name so the message says which line to fix.
+   */
+  private async getCategoriesOrThrow(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    categoryIds: string[],
+    type: TransactionType,
+  ): Promise<Map<string, CategoryModel>> {
+    const wanted = [...new Set(categoryIds)];
+    const rows = await tx.category.findMany({ where: { id: { in: wanted }, userId } });
+    const found = new Map(rows.map((row) => [row.id, row]));
+
+    for (const categoryId of wanted) {
+      const category = found.get(categoryId);
+
+      if (!category) {
+        throw new NotFoundException(`Category ${categoryId} not found`);
+      }
+
+      if (category.kind !== type) {
+        throw new BadRequestException(
+          `Category "${category.name}" is ${category.kind}, cannot be used on a ${type} transaction`,
+        );
+      }
+    }
+
+    return found;
+  }
+
+  /** The batched form of `getProductOrThrow`. Same rule: a link must be ours. */
+  private async getProductsOrThrow(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    productIds: string[],
+  ): Promise<Map<string, ProductModel>> {
+    const wanted = [...new Set(productIds)];
+
+    if (wanted.length === 0) return new Map();
+
+    const rows = await tx.product.findMany({ where: { id: { in: wanted }, userId } });
+    const found = new Map(rows.map((row) => [row.id, row]));
+
+    for (const productId of wanted) {
+      if (!found.has(productId)) {
+        throw new NotFoundException(`Product ${productId} not found`);
+      }
+    }
+
+    return found;
   }
 }

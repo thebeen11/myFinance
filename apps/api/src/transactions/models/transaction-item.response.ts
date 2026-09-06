@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 import { CategorySummaryResponse } from '../../categories/models/category-summary.response';
+import { TransactionItemDiscountResponse } from './transaction-item-discount.response';
 import { TransactionItemProductResponse } from './transaction-item-product.response';
 
 /**
@@ -24,18 +25,26 @@ export class TransactionItemResponse {
   unitPriceMinor!: number;
 
   @ApiProperty({
-    example: 1000,
-    description: 'Basis points off this line (10% is 1000). Zero when nothing was discounted.',
+    type: [TransactionItemDiscountResponse],
+    description: 'Every discount off this line, in the order they cascade.',
+  })
+  discounts!: TransactionItemDiscountResponse[];
+
+  @ApiProperty({
+    example: 2400,
+    description:
+      'What the whole cascade comes to as one rate (24% is 2400), derived by the API. ' +
+      'Zero when nothing was discounted.',
   })
   discountBasisPoints!: number;
 
   @ApiProperty({
-    example: 700,
-    description: 'quantity × unitPriceMinor × discountBasisPoints ÷ 10000, derived by the API.',
+    example: 13_200,
+    description: 'The sum of `discounts`, derived by the API.',
   })
   discountMinor!: number;
 
-  @ApiProperty({ example: 6300, description: 'quantity × unitPriceMinor − discountMinor.' })
+  @ApiProperty({ example: 41_800, description: 'quantity × unitPriceMinor − discountMinor.' })
   lineTotalMinor!: number;
 
   @ApiProperty({ description: 'Order on the receipt.' })

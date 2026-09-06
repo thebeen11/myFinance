@@ -1,7 +1,7 @@
 'use client';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { Camera, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { transactionsRemove } from '@/api';
 import type { TransactionResponse, TransactionsFindAllData } from '@/api';
 import { PageHeader } from '@/components/shell/page-header';
+import { ReceiptScanDialog } from '@/components/transactions/receipt-scan-dialog';
 import { TransactionDialog } from '@/components/transactions/transaction-dialog';
 import {
   AlertDialog,
@@ -63,6 +64,7 @@ export default function TransactionsPage() {
   const [searchInput, setSearchInput] = useState('');
   const [editing, setEditing] = useState<TransactionResponse | undefined>(undefined);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [scanOpen, setScanOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<TransactionResponse | undefined>(undefined);
 
   const queryClient = useQueryClient();
@@ -108,15 +110,21 @@ export default function TransactionsPage() {
         eyebrow="Records"
         title="Transactions"
         actions={
-          <Button
-            onClick={() => {
-              setEditing(undefined);
-              setDialogOpen(true);
-            }}
-          >
-            <Plus data-icon="inline-start" />
-            Add transaction
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setScanOpen(true)}>
+              <Camera data-icon="inline-start" />
+              Scan receipt
+            </Button>
+            <Button
+              onClick={() => {
+                setEditing(undefined);
+                setDialogOpen(true);
+              }}
+            >
+              <Plus data-icon="inline-start" />
+              Add transaction
+            </Button>
+          </div>
         }
       />
 
@@ -391,6 +399,13 @@ export default function TransactionsPage() {
         transaction={editing}
         open={dialogOpen}
         onOpenChange={setDialogOpen}
+      />
+
+      <ReceiptScanDialog
+        accounts={accounts.data?.data ?? []}
+        merchants={merchants.data ?? []}
+        open={scanOpen}
+        onOpenChange={setScanOpen}
       />
 
       {/* Deletion used to fire on the first click with no undo path. */}

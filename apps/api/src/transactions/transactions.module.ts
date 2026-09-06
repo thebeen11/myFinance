@@ -16,6 +16,6 @@ import { TransactionsService } from './services/transactions.service';
     ReimbursementsController,
   ],
   providers: [TransactionsService, TransactionItemsService, TransactionSplitsService],
-  exports: [TransactionsService],
+  exports: [TransactionsService, TransactionItemsService],
 })
 export class TransactionsModule {}

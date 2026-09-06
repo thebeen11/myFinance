@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 
 import { AppModule } from './app.module';
 import { configureApp } from './main';
@@ -16,7 +17,7 @@ type RequestListener = (req: IncomingMessage, res: ServerResponse) => void;
  * `pnpm dev`.
  */
 const createServer = async (): Promise<RequestListener> => {
-  const app = configureApp(await NestFactory.create(AppModule));
+  const app = configureApp(await NestFactory.create<NestExpressApplication>(AppModule));
 
   await app.init();
 

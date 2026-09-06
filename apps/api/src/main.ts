@@ -1,5 +1,6 @@
-import { INestApplication, Logger, ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 import { AppModule } from './app.module';
@@ -11,7 +12,13 @@ import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter'
  * Kept separate from `bootstrap()` so a serverless entrypoint can reuse it
  * without starting an HTTP listener.
  */
-export const configureApp = (app: INestApplication): INestApplication => {
+export const configureApp = (app: NestExpressApplication): NestExpressApplication => {
+  // Express defaults to 100 kB, which a base64 receipt photo clears immediately.
+  // 3 MB rather than something roomier because the browser downscales before it
+  // sends and `ScanReceiptDto` caps the string itself — this is the outer wall,
+  // not the guard.
+  app.useBodyParser('json', { limit: '3mb' });
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -55,7 +62,7 @@ export const configureApp = (app: INestApplication): INestApplication => {
 };
 
 const bootstrap = async (): Promise<void> => {
-  const app = configureApp(await NestFactory.create(AppModule));
+  const app = configureApp(await NestFactory.create<NestExpressApplication>(AppModule));
   const port = Number(process.env.PORT ?? 8001);
 
   await app.listen(port);

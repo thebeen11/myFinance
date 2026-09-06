@@ -646,6 +646,13 @@ export class TransactionsService {
         name: item.name,
         quantity: item.quantity,
         unitPriceMinor: item.unitPriceMinor,
+        discounts: item.discounts.map((discount) => ({
+          id: discount.id,
+          name: discount.name,
+          basisPoints: discount.basisPoints,
+          amountMinor: discount.amountMinor,
+          position: discount.position,
+        })),
         discountBasisPoints: item.discountBasisPoints,
         discountMinor: item.discountMinor,
         lineTotalMinor: item.lineTotalMinor,

@@ -1,15 +1,19 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsInt,
   IsOptional,
   IsString,
   IsUUID,
-  Max,
   MaxLength,
   Min,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
-import { BASIS_POINTS_SCALE } from '@myfinance/shared';
+
+import { TransactionItemDiscountDto } from './transaction-item-discount.dto';
 
 export class CreateTransactionItemDto {
   /**
@@ -54,22 +58,22 @@ export class CreateTransactionItemDto {
   unitPriceMinor!: number;
 
   /**
-   * The rate, not the money: the API derives `discountMinor` and `lineTotalMinor`
-   * from it, the same way it already owns the line total. Absent means no discount.
+   * Every discount on this line, in the order the receipt prints them.
    *
-   * Capped at 100%, unlike a charge's percentage, because a larger one would make
-   * the line total negative and `Transaction.amountMinor` is always positive.
+   * The order is the answer, not a display preference: they **cascade**, each one
+   * off what the ones above it left behind. 55_000 at 20% and then 5% comes to
+   * 11_000 and 2_200, because the second rate reads against the 44_000 the first
+   * left — swapping the two changes both figures.
+   *
+   * The API derives `discountMinor` and `lineTotalMinor` from them, the same way
+   * it already owns the line total. Absent means no discount; on an update, an
+   * empty array clears the ones that are there while absent leaves them alone.
    */
-  @ApiPropertyOptional({
-    example: 1000,
-    minimum: 0,
-    maximum: BASIS_POINTS_SCALE,
-    default: 0,
-    description: 'Basis points off this line (10% is 1000). The API derives the money from it.',
-  })
+  @ApiPropertyOptional({ type: [TransactionItemDiscountDto] })
   @IsOptional()
-  @IsInt()
-  @Min(0)
-  @Max(BASIS_POINTS_SCALE)
-  discountBasisPoints?: number;
+  @IsArray()
+  @ArrayMaxSize(10)
+  @ValidateNested({ each: true })
+  @Type(() => TransactionItemDiscountDto)
+  discounts?: TransactionItemDiscountDto[];
 }

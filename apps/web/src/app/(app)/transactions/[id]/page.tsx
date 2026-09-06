@@ -1,6 +1,7 @@
 'use client';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { basisPointsToPercent } from '@myfinance/shared';
 import { ArrowLeft, BookmarkPlus, Pencil, Plus, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -331,7 +332,21 @@ export default function TransactionDetailPage() {
                             {/* Explicit sign, not a colour: the design system never
                                 signals direction by colour alone. */}
                             −{money(item.discountMinor, receipt?.currency ?? 'IDR')}
-                            <span className="text-xs">{item.discountBasisPoints / 100}%</span>
+                            {/* What it is made of, in the order it cascades. The
+                                effective rate stands in for a line backfilled from
+                                before the discounts were rows of their own. */}
+                            {item.discounts.length > 0 ? (
+                              item.discounts.map((discount) => (
+                                <span key={discount.id} className="text-xs">
+                                  {discount.name ? `${discount.name} ` : ''}
+                                  {discount.basisPoints
+                                    ? `${basisPointsToPercent(discount.basisPoints)}%`
+                                    : `−${money(discount.amountMinor, receipt?.currency ?? 'IDR')}`}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-xs">{item.discountBasisPoints / 100}%</span>
+                            )}
                           </span>
                         ) : (
                           '—'

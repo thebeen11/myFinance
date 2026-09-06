@@ -57,6 +57,10 @@ import type {
   ProductsRemoveResponses,
   ProductsUpdateData,
   ProductsUpdateResponses,
+  ReceiptsCreateData,
+  ReceiptsCreateResponses,
+  ReceiptsScanData,
+  ReceiptsScanResponses,
   ReimbursementsFindOutstandingData,
   ReimbursementsFindOutstandingResponses,
   TransactionItemsCreateData,
@@ -665,4 +669,40 @@ export const reimbursementsFindOutstanding = <ThrowOnError extends boolean = fal
     security: [{ scheme: 'bearer', type: 'http' }],
     url: '/reimbursements/outstanding',
     ...options,
+  });
+
+/**
+ * Read a receipt photo into a draft. Writes nothing.
+ *
+ * Extracts the merchant, date, lines and charges, resolves them against the catalogue, and returns both the printed total and the derived one so the reviewer can see whether anything was misread.
+ */
+export const receiptsScan = <ThrowOnError extends boolean = false>(
+  options: Options<ReceiptsScanData, ThrowOnError>,
+): RequestResult<ReceiptsScanResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).post<ReceiptsScanResponses, unknown, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/receipts/scan',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+  });
+
+/**
+ * Create an expense with all its lines and charges in one atomic write.
+ */
+export const receiptsCreate = <ThrowOnError extends boolean = false>(
+  options: Options<ReceiptsCreateData, ThrowOnError>,
+): RequestResult<ReceiptsCreateResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).post<ReceiptsCreateResponses, unknown, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/receipts',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
   });

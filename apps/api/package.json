@@ -24,9 +24,11 @@
     "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "prisma db seed",
     "prisma:rls": "tsx prisma/enable-rls.ts",
+    "prisma:backfill-item-discounts": "tsx prisma/backfill-item-discounts.ts",
     "prisma:studio": "prisma studio"
   },
   "dependencies": {
+    "@google/genai": "^2.21.0",
     "@myfinance/shared": "workspace:*",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.0",

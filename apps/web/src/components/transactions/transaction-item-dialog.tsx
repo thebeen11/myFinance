@@ -2,7 +2,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { BASIS_POINTS_SCALE, applyBasisPoints, fromMinor, toMinor } from '@myfinance/shared';
+import { basisPointsToPercent, cascadeDiscounts, fromMinor, toMinor } from '@myfinance/shared';
 import { useEffect } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
@@ -12,6 +12,12 @@ import { productsCreate, transactionItemsCreate, transactionItemsUpdate } from '
 import type { CategoryResponse, TransactionItemResponse, TransactionResponse } from '@/api';
 import { CurrencyInput } from '@/components/forms/currency-input';
 import { ProductCombobox } from '@/components/products/product-combobox';
+import {
+  LineDiscountsField,
+  toDiscountBodies,
+  toDiscountRows,
+  type DiscountRow,
+} from '@/components/transactions/line-discounts-field';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -52,31 +58,19 @@ const schema = z.object({
     .union([z.number(), z.undefined()])
     .refine((value): value is number => value !== undefined, 'Enter a price')
     .refine((value) => value >= 0, 'Price cannot be negative'),
-  // Percent as a human types it — 10, not 1000 — like the charges card. Optional
-  // and capped at 100: over that the line total would go negative.
-  discountPercent: z
-    .union([z.number(), z.undefined()])
-    .optional()
-    .refine(
-      (value) => value === undefined || (value >= 0 && value <= 100),
-      'Between 0 and 100 percent',
-    ),
+  // Validated by the field itself rather than here: a row is a rate or an amount
+  // and only the row knows which, so zod holds the shape and the cascade below
+  // decides whether what it comes to is legal.
+  discounts: z.array(
+    z.object({
+      name: z.string(),
+      kind: z.enum(['percent', 'amount']),
+      value: z.union([z.number(), z.undefined()]).optional(),
+    }),
+  ),
 });
 
 type FormValues = z.input<typeof schema>;
-
-/**
- * Basis points are the wire format; nobody types "1000" for ten percent. The same
- * pair the charges card keeps locally — a third caller is what should promote them
- * to `packages/shared/src/money/`.
- */
-const toPercent = (basisPoints: number): number => basisPoints / 100;
-
-/** Anything unusable — an emptied field arrives as NaN — is "no discount". */
-const toBasisPoints = (percent: number | undefined): number =>
-  percent === undefined || !Number.isFinite(percent)
-    ? 0
-    : Math.round((percent * BASIS_POINTS_SCALE) / 100);
 
 interface TransactionItemDialogProps {
   transaction: TransactionResponse;
@@ -104,16 +98,17 @@ interface TransactionItemDialogProps {
  * become master data, and promoting it stays the deliberate step that can also
  * give it a product code.
  *
- * The discount is a **rate**, and only the rate is sent: the API derives the money
- * from it, so editing the quantity later re-applies it instead of leaving a figure
- * that describes the price this line used to be. That is deliberately the opposite
- * of an additional charge, where a typed amount wins over the arithmetic.
+ * Discounts are a list, and they **cascade**: each one comes off what the ones
+ * above it left, which is how a receipt prints them. 55,000 with a 20% promo and
+ * a 5% member discount is 11,000 and 2,200 — the member rate reads against the
+ * 44,000 the promo left, not the gross — so the order of the rows is part of the
+ * answer and the summary below shows the working.
  *
- * It can still be entered either way. The money box is a view of the rate rather
- * than a second field, so typing into it converts to a rate and the box then settles
- * on whatever that rate actually comes to. A receipt's printed discount usually
- * round-trips exactly; when it cannot, the settled figure is the one that will be
- * saved — better than a box that quietly disagrees with the stored line.
+ * A row is a **rate** or a **lump sum**, and the difference outlives this dialog:
+ * only the rate is sent for a rate row, so editing the quantity later re-applies
+ * it instead of leaving a figure that describes the price this line used to be,
+ * while a voucher is off the line and stays where it is. That is deliberately the
+ * opposite of an additional charge, where a typed amount wins over the arithmetic.
  */
 export const TransactionItemDialog = ({
   transaction,
@@ -136,7 +131,7 @@ export const TransactionItemDialog = ({
       name: '',
       quantity: 1,
       unitPrice: undefined,
-      discountPercent: undefined,
+      discounts: [],
     },
   });
 
@@ -150,8 +145,8 @@ export const TransactionItemDialog = ({
       name: item?.name ?? '',
       quantity: item?.quantity ?? 1,
       unitPrice: item ? fromMinor(item.unitPriceMinor, transaction.currency) : undefined,
-      // A line with no discount reads as an empty field, not a typed "0".
-      discountPercent: item?.discountBasisPoints ? toPercent(item.discountBasisPoints) : undefined,
+      // A line with no discount opens with no rows, not an empty one.
+      discounts: toDiscountRows(item?.discounts ?? [], transaction.currency),
     });
   }, [open, item, transaction.currency, form]);
 
@@ -214,8 +209,8 @@ export const TransactionItemDialog = ({
         name: parsed.name,
         quantity: parsed.quantity,
         unitPriceMinor,
-        // The rate is all that is sent; the API derives the money from it.
-        discountBasisPoints: toBasisPoints(parsed.discountPercent),
+        // Rates go over as rates; the API cascades them and derives the money.
+        discounts: toDiscountBodies(parsed.discounts, transaction.currency),
       };
 
       await (item
@@ -272,7 +267,7 @@ export const TransactionItemDialog = ({
   const productId = useWatch({ control: form.control, name: 'productId' });
   const quantity = useWatch({ control: form.control, name: 'quantity' });
   const unitPrice = useWatch({ control: form.control, name: 'unitPrice' });
-  const discountPercent = useWatch({ control: form.control, name: 'discountPercent' });
+  const discounts = useWatch({ control: form.control, name: 'discounts' });
 
   const linkedProduct = selectableProducts.find((product) => product.id === productId);
 
@@ -291,36 +286,14 @@ export const TransactionItemDialog = ({
     transaction.currency,
   );
   // The same helper the API derives with, so this preview is the figure that will
-  // be stored rather than one that usually agrees with it.
-  const discountMinor = applyBasisPoints(grossMinor, toBasisPoints(discountPercent));
-  const lineTotalMinor = grossMinor - discountMinor;
+  // be stored rather than one that usually agrees with it — including the order
+  // the rows apply in, which changes what each one is worth.
+  const bodies = toDiscountBodies(discounts ?? [], transaction.currency);
+  const cascaded = cascadeDiscounts(grossMinor, bodies);
 
-  // The money box is a view of the rate, not a second piece of state — which is why
-  // changing the quantity moves it on its own and the two can never disagree. An
-  // unset discount reads as an empty field rather than a typed zero.
-  const discountAmount =
-    discountPercent === undefined || !Number.isFinite(discountPercent)
-      ? undefined
-      : fromMinor(discountMinor, transaction.currency);
-
-  /**
-   * Entering the discount as money instead of a rate. Only the rate is stored, so
-   * the amount is turned into one immediately and the box then re-renders off it,
-   * settling on the figure that will actually be saved rather than one the API is
-   * about to round somewhere else.
-   */
-  const handleDiscountAmountChange = (amount: number | undefined): void => {
-    if (amount === undefined) {
-      form.setValue('discountPercent', undefined);
-      return;
-    }
-
-    // There is nothing to take a percentage of until a price has been typed.
-    const amountMinor = toMinor(amount, transaction.currency);
-    const basisPoints =
-      grossMinor > 0 ? Math.round((amountMinor * BASIS_POINTS_SCALE) / grossMinor) : 0;
-    form.setValue('discountPercent', toPercent(basisPoints));
-  };
+  // The API refuses this rather than clamping it, so say so here instead of
+  // showing a negative total and letting the save be the one to explain it.
+  const isOverDiscounted = cascaded.lineTotalMinor < 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -420,12 +393,9 @@ export const TransactionItemDialog = ({
           </div>
 
           <div className="grid gap-2">
-            {/* Four across once there is room for it; two-up on a phone, where the
-                dialog is only `calc(100% - 2rem)` wide and a currency-prefixed money
-                field in a quarter of that has no space left for digits. The two
-                short numbers get a fixed column wide enough for their own labels;
-                the money fields take everything left over. */}
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-[6.5rem_1fr_6.5rem_1fr] sm:gap-3">
+            {/* The quantity gets a fixed column wide enough for its own label; the
+                money field takes everything left over. */}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-[6.5rem_1fr] sm:gap-3">
               <div className="grid gap-2">
                 <Label htmlFor="quantity">Quantity</Label>
                 <Input
@@ -457,56 +427,6 @@ export const TransactionItemDialog = ({
                 />
               </div>
 
-              <div className="grid gap-2">
-                <Label htmlFor="discountPercent">Discount %</Label>
-                <Controller
-                  control={form.control}
-                  name="discountPercent"
-                  render={({ field }) => (
-                    <Input
-                      id="discountPercent"
-                      type="number"
-                      min={0}
-                      max={100}
-                      step="any"
-                      inputMode="decimal"
-                      placeholder="—"
-                      value={field.value ?? ''}
-                      onBlur={() => {
-                        // Settle on the rate that will be stored: a typed 33.333 is
-                        // saved as 3333 basis points, so leaving 33.333 on screen
-                        // would state a figure nothing keeps — and the money box
-                        // beside it would already be showing the rounded one.
-                        // An emptied field stays empty, though: 0% is a typed
-                        // instruction, not the absence of one.
-                        if (field.value !== undefined && Number.isFinite(field.value)) {
-                          field.onChange(toPercent(toBasisPoints(field.value)));
-                        }
-                        field.onBlur();
-                      }}
-                      onChange={(event) => {
-                        const percent = event.target.valueAsNumber;
-                        field.onChange(Number.isFinite(percent) ? percent : undefined);
-                      }}
-                      aria-invalid={Boolean(form.formState.errors.discountPercent)}
-                    />
-                  )}
-                />
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="discountAmount">Discount amount</Label>
-                {/* Not a form field: its value is derived from the rate and its
-                    onChange writes back into it, so the pair cannot drift apart. */}
-                <CurrencyInput
-                  id="discountAmount"
-                  name="discountAmount"
-                  currency={transaction.currency}
-                  value={discountAmount}
-                  onChange={handleDiscountAmountChange}
-                  aria-invalid={Boolean(form.formState.errors.discountPercent)}
-                />
-              </div>
             </div>
 
             {/* Below the row, at full width: a message has no room inside a 2.75rem
@@ -517,39 +437,73 @@ export const TransactionItemDialog = ({
             {form.formState.errors.unitPrice ? (
               <p className="text-destructive text-xs">{form.formState.errors.unitPrice.message}</p>
             ) : null}
-            {form.formState.errors.discountPercent ? (
-              <p className="text-destructive text-xs">
-                {form.formState.errors.discountPercent.message}
+          </div>
+
+          <div className="grid gap-2">
+            <Label>Discounts</Label>
+            <Controller
+              control={form.control}
+              name="discounts"
+              render={({ field }) => (
+                <LineDiscountsField
+                  rows={field.value as DiscountRow[]}
+                  onChange={field.onChange}
+                  currency={transaction.currency}
+                  idPrefix="line-discount"
+                />
+              )}
+            />
+            {(discounts ?? []).length > 1 ? (
+              <p className="text-muted-foreground text-xs">
+                Each one comes off what the one above it left, in this order.
               </p>
             ) : null}
           </div>
 
           <div className="bg-muted grid gap-1.5 rounded-xl px-4 py-3 text-sm">
-            {/* Only worth three rows when there is something to subtract; an
-                undiscounted line just states its total. */}
-            {discountMinor > 0 ? (
+            {/* Only worth the working when there is something to subtract; an
+                undiscounted line just states its total. Each row shows what that
+                discount is actually worth here, which is not what its rate alone
+                would suggest once anything sits above it. */}
+            {cascaded.discountMinor !== 0 ? (
               <>
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Before discount</span>
                   <span className="tabular-nums">{money(grossMinor, transaction.currency)}</span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Discount</span>
-                  <span className="tabular-nums">
-                    −{money(discountMinor, transaction.currency)}
-                  </span>
-                </div>
+                {cascaded.discounts.map((discount, index) => (
+                  <div key={index} className="flex items-center justify-between">
+                    <span className="text-muted-foreground">
+                      {(discounts ?? [])[index]?.name.trim() || `Discount ${index + 1}`}
+                      {discount.basisPoints !== null ? (
+                        <span className="ml-1.5 text-xs">
+                          {basisPointsToPercent(discount.basisPoints)}%
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="tabular-nums">
+                      −{money(discount.amountMinor, transaction.currency)}
+                    </span>
+                  </div>
+                ))}
               </>
             ) : null}
             <div
               className={cn(
                 'flex items-center justify-between font-semibold',
-                discountMinor > 0 && 'border-t pt-1.5',
+                cascaded.discountMinor !== 0 && 'border-t pt-1.5',
               )}
             >
               <span>Line total</span>
-              <span className="tabular-nums">{money(lineTotalMinor, transaction.currency)}</span>
+              <span className="tabular-nums">
+                {money(cascaded.lineTotalMinor, transaction.currency)}
+              </span>
             </div>
+            {isOverDiscounted ? (
+              <p className="text-destructive text-xs">
+                These discounts come to more than the line is worth.
+              </p>
+            ) : null}
           </div>
 
           <DialogFooter>
@@ -558,7 +512,7 @@ export const TransactionItemDialog = ({
                 Cancel
               </Button>
             </DialogClose>
-            <Button type="submit" disabled={mutation.isPending}>
+            <Button type="submit" disabled={mutation.isPending || isOverDiscounted}>
               {mutation.isPending ? 'Saving…' : 'Save'}
             </Button>
           </DialogFooter>
