@@ -94,17 +94,24 @@ export const TransactionSplitCard = ({ transaction, split }: TransactionSplitCar
         </p>
 
         <div className="bg-muted grid gap-1.5 rounded-xl px-4 py-3 text-sm">
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">{payer}&rsquo;s own share</span>
-            <span className="tabular-nums">
+          <div className="flex min-w-0 items-center justify-between gap-3">
+            <span className="text-muted-foreground min-w-0 truncate">
+              {payer}&rsquo;s own share
+            </span>
+            <span className="shrink-0 tabular-nums">
               {money(split.ownShareMinor, transaction.currency)}
             </span>
           </div>
 
           {split.debtors.map((debtor) => (
-            <div key={debtor.accountId} className="grid gap-1 border-t pt-1.5">
-              <div className="flex items-center justify-between gap-3">
-                <span className="flex min-w-0 items-center gap-2">
+            <div key={debtor.accountId} className="grid min-w-0 gap-1 border-t pt-1.5">
+              {/* A grid item's `auto` minimum would let this row size to its content
+                  and push the whole card past a phone's width, so the min-w-0 above
+                  is what lets the name below truncate at all. On a narrow screen the
+                  name takes its own line and the figure faces its button, rather than
+                  three things fighting over one. */}
+              <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+                <span className="flex min-w-0 basis-full items-center gap-2 sm:flex-1 sm:basis-0">
                   {/* Both accounts named. Constant whether or not it has been paid —
                       the badge carries the state, so the direction never moves. */}
                   <span className="min-w-0 truncate font-medium">
@@ -120,7 +127,7 @@ export const TransactionSplitCard = ({ transaction, split }: TransactionSplitCar
                     </Badge>
                   ) : null}
                 </span>
-                <span className="flex shrink-0 items-center gap-2">
+                <span className="flex w-full shrink-0 items-center justify-between gap-2 sm:w-auto sm:justify-end">
                   <span className="tabular-nums font-semibold">
                     {money(
                       debtor.settlement?.settledMinor ?? debtor.owedMinor,
